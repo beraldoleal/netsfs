@@ -69,7 +69,6 @@ static struct inode *netsfs_make_inode(struct super_block *sb, int mode)
 static int netsfs_open(struct inode *inode, struct file *filp)
 {
 	filp->private_data = inode->i_private;
-	filp->private_data = inode->i_private;
 
 /*	if (inode->i_ino > NCOUNTERS)
 		return -ENODEV;
