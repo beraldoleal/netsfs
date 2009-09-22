@@ -1,7 +1,7 @@
 /*
  *  netsfs - Network Stats File System
  *          
- *  A virtual file system to show network statics to sysadmins.
+ *  A virtual file system to show network statistics to sysadmins.
  *
  *  This program is free software; you can redistribute it and/or
  *  modify it under the terms of the GNU General Public License version
@@ -45,13 +45,6 @@ static inline unsigned int blksize_bits(unsigned int size)
 	return bits;
 }
 
-/*
- * Anytime we make a file or directory in our filesystem we need to
- * come up with an inode to represent it internally.  This is
- * the function that does that job.  All that's really interesting
- * is the "mode" parameter, which says whether this is a directory
- * or file, and gives the permissions.
- */
 static struct inode *netsfs_make_inode(struct super_block *sb, int mode)
 {
 	struct inode *ret = new_inode(sb);
@@ -77,24 +70,51 @@ static int netsfs_open(struct inode *inode, struct file *filp)
 }
 
 #define TMPSIZE 20
-/*
- * Read a file.  Here we increment and read the counter, then pass it
- * back to the caller.  The increment only happens if the read is done
- * at the beginning of the file (offset = 0); otherwise we end up counting
- * by twos.
- */
+
 static ssize_t netsfs_read_file(struct file *filp, char *buf,
-		size_t count, loff_t *offset)
+		size_t length, loff_t *offset)
 {
-	atomic_t *counter = (atomic_t *) filp->private_data;
+   int i;
+   if(*offset > 0)
+       return 0;
+
+    if ( copy_to_user(buf, "Data here\n", 10))
+			return -EFAULT;
+
+    //           copy_to_user(buf, file_buf, buflen);
+    *offset += length; // advance the offset
+    return 10;
+
+
+/*  int bytes_read = 0;
+  static char *Message_Ptr;
+  char line[10];
+
+	sprintf(line, "Hello\n");
+
+  Message_Ptr = line;
+  if (*Message_Ptr == 0)
+    return 0;
+
+  while (length && *Message_Ptr)  {
+    put_user(*(Message_Ptr++), buf++);
+    length --;
+    bytes_read ++;
+  }
+
+  return bytes_read; */
+
+}
+
+/*	atomic_t *counter = (atomic_t *) filp->private_data;
 	int v, len;
 	char tmp[TMPSIZE];
-/*
+*
  * Encode the value, and figure out how much of it we can pass back.
- */
+ *
 	v = atomic_read(counter);
 	if (*offset > 0)
-		v -= 1;  /* the value returned when offset was zero */
+		v -= 1;  * the value returned when offset was zero *
 	else
 		atomic_inc(counter);
 	len = snprintf(tmp, TMPSIZE, "%d\n", v);
@@ -102,18 +122,16 @@ static ssize_t netsfs_read_file(struct file *filp, char *buf,
 		return 0;
 	if (count > len - *offset)
 		count = len - *offset;
-/*
+*
  * Copy it back, increment the offset, and we're done.
- */
+ *
 	if (copy_to_user(buf, tmp + *offset, count))
 		return -EFAULT;
 	*offset += count;
 	return count;
 }
+*/
 
-/*
- * Write a file.
- */
 static ssize_t netsfs_write_file(struct file *filp, const char *buf,
 		size_t count, loff_t *offset)
 {
@@ -140,9 +158,9 @@ static ssize_t netsfs_write_file(struct file *filp, const char *buf,
 }
 
 static struct file_operations netsfs_file_ops = {
-  .open = netsfs_open,
+//  .open = netsfs_open,
   .read   = netsfs_read_file,
-  .write  = netsfs_write_file,
+//  .write  = netsfs_write_file,
 };
 
 /*
@@ -155,9 +173,6 @@ struct tree_descr OurFiles[] = {
 };
 */
 
-/*
- * Create a file mapping a name to a counter.
- */
 static struct dentry *netsfs_create_file (struct super_block *sb,
 		struct dentry *dir, const char *name,
 		atomic_t *counter)
@@ -197,11 +212,6 @@ static struct dentry *netsfs_create_file (struct super_block *sb,
 	return 0;
 }
 
-/*
- * Create a directory which can be used to hold files.  This code is
- * almost identical to the "create file" logic, except that we create
- * the inode with a different mode, and use the libfs "simple" operations.
- */
 static struct dentry *netsfs_create_dir (struct super_block *sb,
 		struct dentry *parent, const char *name)
 {
@@ -234,14 +244,10 @@ static struct dentry *netsfs_create_dir (struct super_block *sb,
 static void netsfs_create_files (struct super_block *sb, struct dentry *root)
 {
 	struct dentry *subdir;
-/*
- * One counter in the top-level directory.
- */
+	
 	atomic_set(&counter, 0);
 	netsfs_create_file(sb, root, "counter", &counter);
-/*
- * And one in a subdirectory.
- */
+
 	atomic_set(&subcounter, 0);
 	subdir = netsfs_create_dir(sb, root, "subdir");
 	if (subdir)
@@ -259,20 +265,12 @@ static int netsfs_fill_super (struct super_block *sb, void *data, int silent)
 	sb->s_magic = NETSFS_MAGIC;
 	sb->s_op = &netsfs_s_ops;
 
-/*
- * We need to conjure up an inode to represent the root directory
- * of this filesystem.  Its operations all come from libfs, so we
- * don't have to mess with actually *doing* things inside this
- * directory.
- */
 	root = netsfs_make_inode (sb, S_IFDIR | 0755);
 	if (! root)
 		goto out;
 	root->i_op = &simple_dir_inode_operations;
 	root->i_fop = &simple_dir_operations;
-/*
- * Get a dentry to represent the directory in core.
- */
+	
 	root_dentry = d_alloc_root(root);
 	if (! root_dentry)
 		goto out_iput;
