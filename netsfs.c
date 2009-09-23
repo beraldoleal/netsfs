@@ -180,6 +180,7 @@ static struct dentry *netsfs_create_file (struct super_block *sb,
 	struct inode *inode;
 	struct qstr qname;
 
+	printk("Tentando criar %s\n", name);
 	qname.name = name;
 	qname.len = strlen (name);
 	qname.hash = full_name_hash(qname.name, qname.len);
@@ -203,36 +204,41 @@ static struct dentry *netsfs_create_file (struct super_block *sb,
 	}else
 		dput(dentry);
 
-	return 0;
+	return dentry;
 }
 
 static struct dentry *netsfs_create_dir (struct super_block *sb,
 		struct dentry *parent, const char *name)
 {
-	struct dentry *dentry;
+	struct dentry *dentry = NULL;
 	struct inode *inode;
 	struct qstr qname;
 
+	printk("Tentando criar %s\n", name);
 	qname.name = name;
 	qname.len = strlen (name);
-	qname.hash = full_name_hash(name, qname.len);
-	dentry = d_alloc(parent, &qname);
-	if (! dentry)
-		goto out;
+	qname.hash = full_name_hash(qname.name, qname.len);
+	
+	dentry = d_lookup(parent, &qname);
 
-	inode = netsfs_make_inode(sb, S_IFDIR | 0644);
-	if (! inode)
-		goto out_dput;
-	inode->i_op = &simple_dir_inode_operations;
-	inode->i_fop = &simple_dir_operations;
-
-	d_add(dentry, inode);
-	return dentry;
-
-  out_dput:
+	if (!dentry) {
+		dentry = d_alloc(parent, &qname);
+		if (dentry) {
+			inode = netsfs_make_inode(sb, S_IFDIR | 0755);
+			if (!inode) {
+				dput(dentry);
+				return -ENOMEM;
+			} else {
+				inode->i_op = &simple_dir_inode_operations;
+				inode->i_fop = &simple_dir_operations;
+				d_add(dentry, inode);
+			}
+		} else 
+			return -ENOMEM;
+	} else	
 		dput(dentry);
-  out:
-		return 0;
+		
+	return dentry;
 }
 
 static void netsfs_create_files (struct super_block *sb, struct dentry *root)
