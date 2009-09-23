@@ -174,7 +174,7 @@ struct tree_descr OurFiles[] = {
 */
 
 static struct dentry *netsfs_create_file (struct super_block *sb,
-		struct dentry *dir, const char *name, atomic_t *counter)
+		struct dentry *parent, const char *name, atomic_t *counter)
 {
 	struct dentry *dentry = NULL;
 	struct inode *inode;
@@ -184,10 +184,10 @@ static struct dentry *netsfs_create_file (struct super_block *sb,
 	qname.len = strlen (name);
 	qname.hash = full_name_hash(qname.name, qname.len);
 
-  dentry = d_lookup(dir, &qname);
+  dentry = d_lookup(parent, &qname);
 
 	if (!dentry) {
-		dentry = d_alloc(dir, &qname);
+		dentry = d_alloc(parent, &qname);
 		if (dentry) {
 			inode = netsfs_make_inode(sb, S_IFREG | 0644);
 			if (!inode) {
