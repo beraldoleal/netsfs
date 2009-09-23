@@ -174,41 +174,35 @@ struct tree_descr OurFiles[] = {
 */
 
 static struct dentry *netsfs_create_file (struct super_block *sb,
-		struct dentry *dir, const char *name,
-		atomic_t *counter)
+		struct dentry *dir, const char *name, atomic_t *counter)
 {
 	struct dentry *dentry = NULL;
 	struct inode *inode;
 	struct qstr qname;
-/*
- * Make a hashed version of the name to go with the dentry.
- */
+
 	qname.name = name;
 	qname.len = strlen (name);
-	qname.hash = full_name_hash(name, qname.len);
-/*
- * Now we can create our dentry and the inode to go with it.
- */
-	dentry = d_alloc(dir, &qname);
-	if (! dentry)
-		goto out;
-	inode = netsfs_make_inode(sb, S_IFREG | 0644);
-	if (! inode)
-		goto out_dput;
-	inode->i_fop = &netsfs_file_ops;
-	inode->i_private = counter;
-/*
- * Put it all into the dentry cache and we're done.
- */
-	d_add(dentry, inode);
-	return dentry;
-	return 0;
-/*
- * Then again, maybe it didn't work.
- */
-  out_dput:
-	dput(dentry);
-  out:
+	qname.hash = full_name_hash(qname.name, qname.len);
+
+  dentry = d_lookup(dir, &qname);
+
+	if (!dentry) {
+		dentry = d_alloc(dir, &qname);
+		if (dentry) {
+			inode = netsfs_make_inode(sb, S_IFREG | 0644);
+			if (!inode) {
+				dput(dentry);
+				return -ENOMEM;
+			} else {
+				inode->i_fop = &netsfs_file_ops;
+				inode->i_private = counter;
+				d_add(dentry, inode);
+			}
+		} else 
+			return -ENOMEM;
+	}else
+		dput(dentry);
+
 	return 0;
 }
 
