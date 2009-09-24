@@ -1,7 +1,9 @@
 obj-m += netsfs.o
 
+KERNEL_DIR := /lib/modules/$(shell uname -r)/build
+
 all:
-	make -C /lib/modules/$(shell uname -r)/build M=$(PWD) modules
+	$(MAKE) -C $(KERNEL_DIR) SUBDIRS=$(PWD) modules
 
 clean:
-	make -C /lib/modules/$(shell uname -r)/build M=$(PWD) clean && rm modules.order
+	$(MAKE) -C $(KERNEL_DIR) SUBDIRS=$(PWD) clean && rm modules.order

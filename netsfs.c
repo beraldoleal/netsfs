@@ -12,12 +12,15 @@
  */
 
 #include <linux/kernel.h>
-#include <linux/init.h>
 #include <linux/module.h>
+#include <linux/init.h>
 #include <linux/pagemap.h>
 #include <linux/fs.h>
 #include <asm/atomic.h>
 #include <asm/uaccess.h>
+
+#include <linux/netfilter_ipv4.h>
+#include <linux/ip.h>
 
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Beraldo Leal");
@@ -26,13 +29,31 @@ MODULE_AUTHOR("Beraldo Leal");
 #define TMPSIZE 20
 #define NCOUNTERS 1
 
-static atomic_t counters[NCOUNTERS];
+#define NF_IP_PRE_ROUTING	0
+
 static atomic_t counter, subcounter;
+
+static struct nf_hook_ops nfhook_ops;
 
 static struct super_operations netsfs_s_ops = {
 	.statfs			= simple_statfs,
 	.drop_inode	= generic_delete_inode,
 };
+
+unsigned int nfhook_netsfs(unsigned int hooknum, struct sk_buff *skb,
+  const struct net_device *in, const struct net_device *out,
+  int (*okfn)(struct sk_buff *))
+{
+//  struct dentry *subdir;
+
+	printk("0x%04x 0x%02x\n", htons(eth_hdr(skb)->h_proto), ip_hdr(skb)->protocol);	
+
+/*  subdir = netsfs_create_dir(sb, root, "subdir");
+  if (subdir)
+    netsfs_create_dir(sb, subdir, "subcounter"); */
+
+  return NF_ACCEPT;
+}
 
 static inline unsigned int blksize_bits(unsigned int size)
 {
@@ -59,119 +80,24 @@ static struct inode *netsfs_make_inode(struct super_block *sb, int mode)
 	return ret;
 }
 
-static int netsfs_open(struct inode *inode, struct file *filp)
-{
-	filp->private_data = inode->i_private;
-
-/*	if (inode->i_ino > NCOUNTERS)
-		return -ENODEV;
-	filp->private_data = counters + inode->i_ino - 1;*/
-	return 0;
-}
-
 #define TMPSIZE 20
 
 static ssize_t netsfs_read_file(struct file *filp, char *buf,
 		size_t length, loff_t *offset)
 {
-   int i;
    if(*offset > 0)
        return 0;
 
     if ( copy_to_user(buf, "Data here\n", 10))
 			return -EFAULT;
 
-    //           copy_to_user(buf, file_buf, buflen);
     *offset += length; // advance the offset
     return 10;
-
-
-/*  int bytes_read = 0;
-  static char *Message_Ptr;
-  char line[10];
-
-	sprintf(line, "Hello\n");
-
-  Message_Ptr = line;
-  if (*Message_Ptr == 0)
-    return 0;
-
-  while (length && *Message_Ptr)  {
-    put_user(*(Message_Ptr++), buf++);
-    length --;
-    bytes_read ++;
-  }
-
-  return bytes_read; */
-
-}
-
-/*	atomic_t *counter = (atomic_t *) filp->private_data;
-	int v, len;
-	char tmp[TMPSIZE];
-*
- * Encode the value, and figure out how much of it we can pass back.
- *
-	v = atomic_read(counter);
-	if (*offset > 0)
-		v -= 1;  * the value returned when offset was zero *
-	else
-		atomic_inc(counter);
-	len = snprintf(tmp, TMPSIZE, "%d\n", v);
-	if (*offset > len)
-		return 0;
-	if (count > len - *offset)
-		count = len - *offset;
-*
- * Copy it back, increment the offset, and we're done.
- *
-	if (copy_to_user(buf, tmp + *offset, count))
-		return -EFAULT;
-	*offset += count;
-	return count;
-}
-*/
-
-static ssize_t netsfs_write_file(struct file *filp, const char *buf,
-		size_t count, loff_t *offset)
-{
-	atomic_t *counter = (atomic_t *) filp->private_data;
-	char tmp[TMPSIZE];
-/*
- * Only write from the beginning.
- */
-	if (*offset != 0)
-		return -EINVAL;
-/*
- * Read the value from the user.
- */
-	if (count >= TMPSIZE)
-		return -EINVAL;
-	memset(tmp, 0, TMPSIZE);
-	if (copy_from_user(tmp, buf, count))
-		return -EFAULT;
-/*
- * Store it in the counter and we are done.
- */
-	atomic_set(counter, simple_strtol(tmp, NULL, 10));
-	return count;
 }
 
 static struct file_operations netsfs_file_ops = {
-//  .open = netsfs_open,
   .read   = netsfs_read_file,
-//  .write  = netsfs_write_file,
 };
-
-/*
-struct tree_descr OurFiles[] = {
-  { NULL, NULL, 0 },
-  { .name = "counter",
-    .ops = &netsfs_file_ops,
-    .mode = S_IWUSR|S_IRUGO },
-  { "", NULL, 0 }
-};
-*/
 
 static struct dentry *netsfs_create_file (struct super_block *sb,
 		struct dentry *parent, const char *name, atomic_t *counter)
@@ -180,7 +106,6 @@ static struct dentry *netsfs_create_file (struct super_block *sb,
 	struct inode *inode;
 	struct qstr qname;
 
-	printk("Tentando criar %s\n", name);
 	qname.name = name;
 	qname.len = strlen (name);
 	qname.hash = full_name_hash(qname.name, qname.len);
@@ -193,14 +118,14 @@ static struct dentry *netsfs_create_file (struct super_block *sb,
 			inode = netsfs_make_inode(sb, S_IFREG | 0644);
 			if (!inode) {
 				dput(dentry);
-				return -ENOMEM;
+				return (struct dentry *) -ENOMEM;
 			} else {
 				inode->i_fop = &netsfs_file_ops;
 				inode->i_private = counter;
 				d_add(dentry, inode);
 			}
 		} else 
-			return -ENOMEM;
+			return (struct dentry *) -ENOMEM;
 	}else
 		dput(dentry);
 
@@ -214,7 +139,6 @@ static struct dentry *netsfs_create_dir (struct super_block *sb,
 	struct inode *inode;
 	struct qstr qname;
 
-	printk("Tentando criar %s\n", name);
 	qname.name = name;
 	qname.len = strlen (name);
 	qname.hash = full_name_hash(qname.name, qname.len);
@@ -227,14 +151,14 @@ static struct dentry *netsfs_create_dir (struct super_block *sb,
 			inode = netsfs_make_inode(sb, S_IFDIR | 0755);
 			if (!inode) {
 				dput(dentry);
-				return -ENOMEM;
+				return (struct dentry *) -ENOMEM;
 			} else {
 				inode->i_op = &simple_dir_inode_operations;
 				inode->i_fop = &simple_dir_operations;
 				d_add(dentry, inode);
 			}
 		} else 
-			return -ENOMEM;
+			return (struct dentry *) -ENOMEM;
 	} else	
 		dput(dentry);
 		
@@ -283,14 +207,18 @@ static int netsfs_fill_super (struct super_block *sb, void *data, int silent)
 		iput(root);
   out:
 		return -ENOMEM;
-//	return simple_fill_super(sb, NETSFS_MAGIC, OurFiles);
-
 }
 
 static int netsfs_get_super(struct file_system_type *fst,
  int flags, const char *devname, void *data,
  struct vfsmount *mnt)
 {
+	nfhook_ops.hook  = nfhook_netsfs;
+	nfhook_ops.hooknum = NF_IP_PRE_ROUTING;
+	nfhook_ops.pf  = PF_INET;
+	nfhook_ops.priority  = NF_IP_PRI_FIRST;
+
+	nf_register_hook(&nfhook_ops);
 	return get_sb_single(fst, flags, data, netsfs_fill_super, mnt);
 }
 
@@ -304,17 +232,16 @@ static struct file_system_type netsfs_type = {
 
 static int __init netsfs_init(void)
 {
-	int i;
 
 	printk("Kernel now with netsfs support.\n");
-	for (i = 0; i < NCOUNTERS; i++)
-		atomic_set(counters + i, 0);
-	return register_filesystem(&netsfs_type);
+	register_filesystem(&netsfs_type);
+	return 0;
 }
 
 static void __exit netsfs_exit(void)
 {
 	printk("Kernel now without netsfs support.\n");
+	nf_unregister_hook(&nfhook_ops);
 	unregister_filesystem(&netsfs_type);
 }
 
