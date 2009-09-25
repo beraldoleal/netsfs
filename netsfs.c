@@ -31,6 +31,12 @@ MODULE_AUTHOR("Beraldo Leal");
 
 #define NF_IP_PRE_ROUTING	0
 
+static struct dentry *netsfs_create_dir (struct dentry *parent, 
+	const char *name);
+
+struct super_block *sb2 = NULL;
+struct dentry *root_dentry = NULL;
+
 static atomic_t counter, subcounter;
 
 static struct nf_hook_ops nfhook_ops;
@@ -45,11 +51,14 @@ unsigned int nfhook_netsfs(unsigned int hooknum, struct sk_buff *skb,
   int (*okfn)(struct sk_buff *))
 {
 //  struct dentry *subdir;
+	char p_ether[6];
 
-	printk("0x%04x 0x%02x\n", htons(eth_hdr(skb)->h_proto), ip_hdr(skb)->protocol);	
+	sprintf(p_ether, "0x%04x", htons(eth_hdr(skb)->h_proto));
+//	printk("0x%04x 0x%02x\n", htons(eth_hdr(skb)->h_proto), ip_hdr(skb)->protocol);	
 
-/*  subdir = netsfs_create_dir(sb, root, "subdir");
-  if (subdir)
+	netsfs_create_dir(root_dentry, p_ether);
+
+/*  if (subdir)
     netsfs_create_dir(sb, subdir, "subcounter"); */
 
   return NF_ACCEPT;
@@ -99,8 +108,8 @@ static struct file_operations netsfs_file_ops = {
   .read   = netsfs_read_file,
 };
 
-static struct dentry *netsfs_create_file (struct super_block *sb,
-		struct dentry *parent, const char *name, atomic_t *counter)
+static struct dentry *netsfs_create_file (struct dentry *parent, 
+	const char *name, atomic_t *counter)
 {
 	struct dentry *dentry = NULL;
 	struct inode *inode;
@@ -115,7 +124,7 @@ static struct dentry *netsfs_create_file (struct super_block *sb,
 	if (!dentry) {
 		dentry = d_alloc(parent, &qname);
 		if (dentry) {
-			inode = netsfs_make_inode(sb, S_IFREG | 0644);
+			inode = netsfs_make_inode(sb2, S_IFREG | 0644);
 			if (!inode) {
 				dput(dentry);
 				return (struct dentry *) -ENOMEM;
@@ -132,8 +141,8 @@ static struct dentry *netsfs_create_file (struct super_block *sb,
 	return dentry;
 }
 
-static struct dentry *netsfs_create_dir (struct super_block *sb,
-		struct dentry *parent, const char *name)
+static struct dentry *netsfs_create_dir (struct dentry *parent, 
+	const char *name)
 {
 	struct dentry *dentry = NULL;
 	struct inode *inode;
@@ -148,7 +157,7 @@ static struct dentry *netsfs_create_dir (struct super_block *sb,
 	if (!dentry) {
 		dentry = d_alloc(parent, &qname);
 		if (dentry) {
-			inode = netsfs_make_inode(sb, S_IFDIR | 0755);
+			inode = netsfs_make_inode(sb2, S_IFDIR | 0755);
 			if (!inode) {
 				dput(dentry);
 				return (struct dentry *) -ENOMEM;
@@ -165,23 +174,22 @@ static struct dentry *netsfs_create_dir (struct super_block *sb,
 	return dentry;
 }
 
-static void netsfs_create_files (struct super_block *sb, struct dentry *root)
+static void netsfs_create_files (void)
 {
 	struct dentry *subdir;
 	
 	atomic_set(&counter, 0);
-	netsfs_create_file(sb, root, "counter", &counter);
+	netsfs_create_file(root_dentry, "counter", &counter);
 
 	atomic_set(&subcounter, 0);
-	subdir = netsfs_create_dir(sb, root, "subdir");
+	subdir = netsfs_create_dir(root_dentry, "subdir");
 	if (subdir)
-		netsfs_create_file(sb, subdir, "subcounter", &subcounter);
+		netsfs_create_file(subdir, "subcounter", &subcounter);
 }
 
 static int netsfs_fill_super (struct super_block *sb, void *data, int silent)
 {
-	struct inode *root;
-	struct dentry *root_dentry;
+	struct inode *i_root;
 
 	// Basic parameters.
 	sb->s_blocksize = PAGE_CACHE_SIZE;
@@ -189,22 +197,26 @@ static int netsfs_fill_super (struct super_block *sb, void *data, int silent)
 	sb->s_magic = NETSFS_MAGIC;
 	sb->s_op = &netsfs_s_ops;
 
-	root = netsfs_make_inode (sb, S_IFDIR | 0755);
-	if (! root)
+	i_root = netsfs_make_inode (sb, S_IFDIR | 0755);
+	if (! i_root)
 		goto out;
-	root->i_op = &simple_dir_inode_operations;
-	root->i_fop = &simple_dir_operations;
+	i_root->i_op = &simple_dir_inode_operations;
+	i_root->i_fop = &simple_dir_operations;
 	
-	root_dentry = d_alloc_root(root);
+	root_dentry = d_alloc_root(i_root);
 	if (! root_dentry)
 		goto out_iput;
 	sb->s_root = root_dentry;
 
-	netsfs_create_files (sb, root_dentry);
+
+	sb2 = (struct super_block*) kmalloc(sizeof(struct super_block), GFP_KERNEL);
+	sb2 = sb;
+
+	netsfs_create_files();
 	return 0;
 	
   out_iput:
-		iput(root);
+		iput(i_root);
   out:
 		return -ENOMEM;
 }
