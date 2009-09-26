@@ -1,7 +1,7 @@
 netsfs - Network Stats File System
 ----------------------------------
 
-This code is only a prototype of a usable file system.
+This code is only a prototype of a filesystem useless. (For now)
 
 The basic idea came from the demuxfs [1], a live filesystem that aids on the 
 analysis of transport streams in digital TV systems. Thanks Lucas V. Real.
