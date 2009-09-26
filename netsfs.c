@@ -50,16 +50,16 @@ unsigned int nfhook_netsfs(unsigned int hooknum, struct sk_buff *skb,
   const struct net_device *in, const struct net_device *out,
   int (*okfn)(struct sk_buff *))
 {
-//  struct dentry *subdir;
-	char p_ether[6];
+	struct dentry *subdir;
+	char p_ether[5], p_ip[4];
 
-	sprintf(p_ether, "0x%04x", htons(eth_hdr(skb)->h_proto));
-//	printk("0x%04x 0x%02x\n", htons(eth_hdr(skb)->h_proto), ip_hdr(skb)->protocol);	
+	sprintf(p_ether, "%d", eth_hdr(skb)->h_proto);
+	sprintf(p_ip, "%d", ip_hdr(skb)->protocol);
+//	printk("0x%04x 0x%02x\n", eth_hdr(skb)->h_proto, ip_hdr(skb)->protocol);	
 
-	netsfs_create_dir(root_dentry, p_ether);
+	subdir = netsfs_create_dir(root_dentry, p_ether);
 
-/*  if (subdir)
-    netsfs_create_dir(sb, subdir, "subcounter"); */
+  netsfs_create_dir(subdir, p_ip);
 
   return NF_ACCEPT;
 }
@@ -88,8 +88,6 @@ static struct inode *netsfs_make_inode(struct super_block *sb, int mode)
 	}
 	return ret;
 }
-
-#define TMPSIZE 20
 
 static ssize_t netsfs_read_file(struct file *filp, char *buf,
 		size_t length, loff_t *offset)
@@ -212,13 +210,18 @@ static int netsfs_fill_super (struct super_block *sb, void *data, int silent)
 	sb2 = (struct super_block*) kmalloc(sizeof(struct super_block), GFP_KERNEL);
 	sb2 = sb;
 
-	netsfs_create_files();
+//	netsfs_create_files();
 	return 0;
 	
   out_iput:
 		iput(i_root);
   out:
 		return -ENOMEM;
+}
+
+static void netsfs_kill_super(struct super_block *sb) {
+	nf_unregister_hook(&nfhook_ops);
+	kill_litter_super(sb);
 }
 
 static int netsfs_get_super(struct file_system_type *fst,
@@ -238,9 +241,8 @@ static struct file_system_type netsfs_type = {
   .owner    = THIS_MODULE,
   .name     = "netsfs",
   .get_sb   = netsfs_get_super,
-  .kill_sb  = kill_litter_super
+  .kill_sb  = netsfs_kill_super
 };
-
 
 static int __init netsfs_init(void)
 {
@@ -253,7 +255,6 @@ static int __init netsfs_init(void)
 static void __exit netsfs_exit(void)
 {
 	printk("Kernel now without netsfs support.\n");
-	nf_unregister_hook(&nfhook_ops);
 	unregister_filesystem(&netsfs_type);
 }
 
