@@ -11,8 +11,7 @@
 
 #define NETSFS_MAGIC 0x19980122
 
-static ssize_t netsfs_read_file(struct file *filp, char *buf,
-                size_t length, loff_t *offset);
+static ssize_t netsfs_read_file(struct file *filp, char *buf, size_t length, loff_t *offset);
 
 struct netsfs_mount_opts {
         uid_t uid;
