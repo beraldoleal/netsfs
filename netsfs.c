@@ -14,14 +14,62 @@
 #include <linux/init.h>
 #include <linux/fs.h>
 #include <linux/pagemap.h>
-#include <asm/atomic.h>
-#include <asm/uaccess.h>
 #include <linux/slab.h>
+#include <linux/if_ether.h>
+
+#include <linux/skbuff.h>
+#include <linux/netdevice.h>
 
 #include "netsfs.h"
 
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Beraldo Leal");
+
+struct packet_type netsfs_pseudo_proto;
+
+int netsfs_packet_handler(struct sk_buff *skb,
+                          struct net_device *dev,
+                          struct packet_type *pkt,
+                          struct net_device *dev2)
+{
+
+    struct ethhdr *ethhdr;
+    int len, err;
+
+    len = skb->len;
+    if (len > ETH_DATA_LEN) {
+        printk(KERN_INFO "%s:len > ETH_DATA_LEN!\n", THIS_MODULE->name);
+        err = -ENOMEM;
+        goto fail;
+    }
+
+    printk(KERN_INFO "%s: New packet\n", THIS_MODULE->name);
+
+//    ethhdr = (struct ethhdr *)skb->data;
+//
+//    /* check for ip header */
+//    switch (ntohs(ethhdr->h_proto))
+//    {
+//    case ETH_P_RARP:
+//    case ETH_P_ARP:
+//        printk(KERN_INFO "%s: ARP/RARP Packet\n", THIS_MODULE->name);
+//        break;
+//    case ETH_P_IP:
+//        printk(KERN_INFO "%s: IPv4 Packet\n", THIS_MODULE->name);
+//        break;
+//    default:
+//        printk(KERN_INFO "%s: Unknow packet\n", THIS_MODULE->name);
+//        break;
+//    }
+
+    /* We need free the skb, this is a copy! */
+    dev_kfree_skb(skb);
+
+    return 0;
+fail:
+    dev_kfree_skb(skb);
+    return err;
+}
 
 static ssize_t netsfs_read_file(struct file *filp, char *buf,
                 size_t length, loff_t *offset)
@@ -102,7 +150,12 @@ static int netsfs_fill_super(struct super_block *sb, void *data, int silent)
             goto fail;
     }
 
-    //netsfs_create_files();
+    /* register protocol handler */
+    netsfs_pseudo_proto.type = htons(ETH_P_IP);
+    netsfs_pseudo_proto.dev = NULL;
+    netsfs_pseudo_proto.func = netsfs_packet_handler;
+    dev_add_pack(&netsfs_pseudo_proto);
+
     return 0;
 
 fail:
@@ -120,7 +173,6 @@ static struct dentry *netsfs_mount(struct file_system_type *fs_type,
     return mount_single(fs_type, flags, data, netsfs_fill_super);
 }
 
-
 static struct file_system_type netsfs_type = {
     .owner    = THIS_MODULE,
     .name     = "netsfs",
@@ -136,8 +188,9 @@ static int __init netsfs_init(void)
 
 static void __exit netsfs_exit(void)
 {
-    printk("Kernel now without netsfs support.\n");
+    dev_remove_pack(&netsfs_pseudo_proto);
     unregister_filesystem(&netsfs_type);
+    printk("Kernel now without netsfs support.\n");
 }
 
 module_init(netsfs_init);
