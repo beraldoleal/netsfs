@@ -11,6 +11,11 @@
 
 #define NETSFS_MAGIC 0x19980122
 
+static struct dentry *netsfs_mount(struct file_system_type *fs_type,
+    int flags, const char *dev_name, void *data);
+static int netsfs_fill_super(struct super_block *sb, void *data, int silent);
+
+
 static ssize_t netsfs_read_file(struct file *filp, char *buf, size_t length, loff_t *offset);
 
 struct netsfs_mount_opts {
