@@ -203,7 +203,14 @@ static int netsfs_mknod(struct inode *dir, struct dentry *dentry, int mode, dev_
 
 static int netsfs_mkdir(struct inode * dir, struct dentry * dentry, int mode)
 {
+    printk("%s:%s:%d - Start. parent->d_inode->i_ino == %lu\n",
+            THIS_MODULE->name,
+            __FUNCTION__,
+            __LINE__,
+            parent->d_inode->i_ino);
+
     int retval = netsfs_mknod(dir, dentry, mode | S_IFDIR, 0);
+
     if (!retval)
         inc_nlink(dir);
     return retval;
@@ -272,9 +279,7 @@ static int netsfs_create_by_name(const char *name, mode_t mode,
         printk("**** NAO ACHOU\n");
         switch (mode & S_IFMT) {
             case S_IFDIR:
-                printk("**** EH UM DIRETORIO, TENTANDO CRIAR\n");
                 error = netsfs_mkdir(parent->d_inode, *dentry, mode);
-                printk("**** CRIADO\n");
                 break;
             case S_IFLNK:
                 //        error = netsfs_symlink(parent->d_inode, *dentry, mode, data);
@@ -369,6 +374,7 @@ struct dentry *netsfs_mount(struct file_system_type *fs_type,
 
     sb = root->d_sb;
     netsfs_root = sb->s_root;
+
     netsfs_register_pack();
 
     printk("%s:%s:%d - End.\n", THIS_MODULE->name, __FUNCTION__, __LINE__);
@@ -381,7 +387,7 @@ struct dentry *netsfs_mount(struct file_system_type *fs_type,
 
     // Try to create two dirs with the same name
     netsfs_create_by_name("ipv4", S_IFDIR, NULL, &dentry, NULL);
-    netsfs_create_by_name("ipv4", S_IFDIR, netsfs_root, &dentry2, NULL);
+    netsfs_create_by_name("ipv4", S_IFDIR, NULL, &dentry2, NULL);
 
 out:
     return root;
