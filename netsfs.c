@@ -191,9 +191,13 @@ struct inode *netsfs_get_inode(struct super_block *sb,
 /* SMP-safe */
 static int netsfs_mknod(struct inode *dir, struct dentry *dentry, int mode, dev_t dev)
 {
-    struct inode * inode = netsfs_get_inode(dir->i_sb, dir, mode, dev);
+    struct inode *inode;
     int error = -ENOSPC;
 
+    if (dentry->d_inode)
+        return -EEXIST;
+
+    inode  = netsfs_get_inode(dir->i_sb, dir, mode, dev);
     if (inode) {
         d_instantiate(dentry, inode);
         dget(dentry);   /* Extra count - pin the dentry in core */
@@ -259,82 +263,41 @@ static int netsfs_create_by_name(const char *name, mode_t mode,
         struct dentry **dentry,
         void *data)
 {
-    struct qstr qname;
     int error = 0;
-
-    printk("%s:%s:%d - Start.\n", THIS_MODULE->name, __FUNCTION__, __LINE__);
 
     /* If the parent is not specified, we create it in the root.
      * We need the root dentry to do this, which is in the super
      * block. A pointer to that is in the struct vfsmount that we
      * have around.
      */
-    if (!parent) {
-        printk("%s:%s:%d - parent == NULL, updating with netsfs_root.\n",
-                THIS_MODULE->name,
-                __FUNCTION__,
-                __LINE__);
+    if (!parent)
         parent = netsfs_root;
-    }
-
-    printk("%s:%s:%d - parent != NULL. parent->d_inode->i_ino == %lu\n",
-            THIS_MODULE->name,
-            __FUNCTION__,
-            __LINE__,
-            parent->d_inode->i_ino);
 
     *dentry = NULL;
 
+    mutex_lock(&parent->d_inode->i_mutex);
+    *dentry = lookup_one_len(name, parent, strlen(name));
 
-    qname.name = name;
-    qname.len = strlen (name);
-    qname.hash = full_name_hash(qname.name, qname.len);
+    if (!IS_ERR(*dentry)) {
+        switch (mode & S_IFMT) {
+            case S_IFDIR:
+                error = netsfs_mkdir(parent->d_inode, *dentry, mode);
+                break;
+            case S_IFLNK:
+                //        error = netsfs_symlink(parent->d_inode, *dentry, mode, data);
+                //        break;
+            default:
+                error = netsfs_create(parent->d_inode, *dentry, mode, data);
+                break;
+        }
+        dput(*dentry);
+    } else
+        error = PTR_ERR(*dentry);
 
-    printk("%s:%s:%d - Searching for %s (%d) (%u)\n",
-            THIS_MODULE->name,
-            __FUNCTION__,
-            __LINE__,
-            qname.name,
-            qname.len,
-            qname.hash);
-
-    *dentry = d_lookup(parent, &qname);
-
-    if (!*dentry) {
-        printk("%s:%s:%d - Not found.\n",
-                THIS_MODULE->name,
-                __FUNCTION__,
-                __LINE__);
-
-        mutex_lock(&parent->d_inode->i_mutex);
-        *dentry = lookup_one_len(name, parent, strlen(name));
-
-
-        if (!IS_ERR(*dentry)) {
-            switch (mode & S_IFMT) {
-                case S_IFDIR:
-                    error = netsfs_mkdir(parent->d_inode, *dentry, mode);
-                    break;
-                case S_IFLNK:
-                    //        error = netsfs_symlink(parent->d_inode, *dentry, mode, data);
-                    //        break;
-                default:
-                    error = netsfs_create(parent->d_inode, *dentry, mode, data);
-                    break;
-            }
-            dput(*dentry);
-        } else
-            error = PTR_ERR(*dentry);
-
-        mutex_unlock(&parent->d_inode->i_mutex);
-    }
-    printk("%s:%s:%d - End.\n", THIS_MODULE->name, __FUNCTION__, __LINE__);
+    mutex_unlock(&parent->d_inode->i_mutex);
 
     return error;
 
-fail:
-    *dentry = NULL;
-    return error;
 }
 
 int netsfs_fill_super(struct super_block *sb, void *data, int silent)
