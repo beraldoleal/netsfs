@@ -1,3 +1,4 @@
+/* vim: tabstop=4:softtabstop=4:shiftwidth=4:expandtab */
 #include <linux/fs.h>
 #include <linux/module.h>
 #include <linux/pagemap.h>
