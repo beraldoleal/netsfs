@@ -205,16 +205,27 @@ static int netsfs_mknod(struct inode *dir, struct dentry *dentry, int mode, dev_
 
 static int netsfs_mkdir(struct inode * dir, struct dentry * dentry, int mode)
 {
-    printk("%s:%s:%d - Start. parent->d_inode->i_ino == %lu\n",
+    int retval;
+
+    printk("%s:%s:%d - Start. dir->i_ino == %lu, dentry->d_iname == %s\n",
             THIS_MODULE->name,
             __FUNCTION__,
             __LINE__,
-            parent->d_inode->i_ino);
+            dir->i_ino,
+            dentry->d_iname);
 
-    int retval = netsfs_mknod(dir, dentry, mode | S_IFDIR, 0);
+    retval = netsfs_mknod(dir, dentry, mode | S_IFDIR, 0);
 
     if (!retval)
         inc_nlink(dir);
+
+    printk("%s:%s:%d - End. inode->i_ino == %lu, dentry->d_iname == %s\n",
+            THIS_MODULE->name,
+            __FUNCTION__,
+            __LINE__,
+            dir->i_ino,
+            dentry->d_iname);
+
     return retval;
 }
 
@@ -260,9 +271,9 @@ static int netsfs_create_by_name(const char *name, mode_t mode,
      */
     if (!parent) {
         printk("%s:%s:%d - parent == NULL, updating with netsfs_root.\n",
-               THIS_MODULE->name,
-               __FUNCTION__,
-               __LINE__);
+                THIS_MODULE->name,
+                __FUNCTION__,
+                __LINE__);
         parent = netsfs_root;
     }
 
@@ -274,27 +285,49 @@ static int netsfs_create_by_name(const char *name, mode_t mode,
 
     *dentry = NULL;
 
-    mutex_lock(&parent->d_inode->i_mutex);
-    *dentry = lookup_one_len(name, parent, strlen(name));
 
-    if (!IS_ERR(*dentry)) {
-        printk("**** NAO ACHOU\n");
-        switch (mode & S_IFMT) {
-            case S_IFDIR:
-                error = netsfs_mkdir(parent->d_inode, *dentry, mode);
-                break;
-            case S_IFLNK:
-                //        error = netsfs_symlink(parent->d_inode, *dentry, mode, data);
-                //        break;
-            default:
-                error = netsfs_create(parent->d_inode, *dentry, mode, data);
-                break;
-        }
-        dput(*dentry);
-    } else
-        error = PTR_ERR(*dentry);
+    qname.name = name;
+    qname.len = strlen (name);
+    qname.hash = full_name_hash(qname.name, qname.len);
 
-    mutex_unlock(&parent->d_inode->i_mutex);
+    printk("%s:%s:%d - Searching for %s (%d) (%u)\n",
+            THIS_MODULE->name,
+            __FUNCTION__,
+            __LINE__,
+            qname.name,
+            qname.len,
+            qname.hash);
+
+    *dentry = d_lookup(parent, &qname);
+
+    if (!*dentry) {
+        printk("%s:%s:%d - Not found.\n",
+                THIS_MODULE->name,
+                __FUNCTION__,
+                __LINE__);
+
+        mutex_lock(&parent->d_inode->i_mutex);
+        *dentry = lookup_one_len(name, parent, strlen(name));
+
+
+        if (!IS_ERR(*dentry)) {
+            switch (mode & S_IFMT) {
+                case S_IFDIR:
+                    error = netsfs_mkdir(parent->d_inode, *dentry, mode);
+                    break;
+                case S_IFLNK:
+                    //        error = netsfs_symlink(parent->d_inode, *dentry, mode, data);
+                    //        break;
+                default:
+                    error = netsfs_create(parent->d_inode, *dentry, mode, data);
+                    break;
+            }
+            dput(*dentry);
+        } else
+            error = PTR_ERR(*dentry);
+
+        mutex_unlock(&parent->d_inode->i_mutex);
+    }
     printk("%s:%s:%d - End.\n", THIS_MODULE->name, __FUNCTION__, __LINE__);
 
     return error;
