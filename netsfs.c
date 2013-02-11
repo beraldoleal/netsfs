@@ -365,16 +365,13 @@ struct dentry *netsfs_mount(struct file_system_type *fs_type,
     struct dentry *root;
     struct dentry *dentry;
     struct dentry *dentry2;
-    struct super_block *sb;
 
     printk("%s:%s:%d - Start.\n", THIS_MODULE->name, __FUNCTION__, __LINE__);
     root = mount_nodev(fs_type, flags, data, netsfs_fill_super);
     if (IS_ERR(root))
         goto out;
 
-    sb = root->d_sb;
-    netsfs_root = sb->s_root;
-
+    netsfs_root = root;
     netsfs_register_pack();
 
     printk("%s:%s:%d - End.\n", THIS_MODULE->name, __FUNCTION__, __LINE__);
