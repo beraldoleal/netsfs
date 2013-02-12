@@ -1,16 +1,8 @@
 obj-m += netsfs.o
+netsfs-objs := proto.o inode.o
 
-KERNEL_DIR := /lib/modules/$(shell uname -r)/build
-
-all: clean
-	$(MAKE) -C $(KERNEL_DIR) SUBDIRS=$(PWD) modules
-
-test: all
-	sudo dmesg -c
-	clear
-	sudo insmod netsfs.ko
-	dmesg
-	sudo strace mount -t netsfs none /net
+all:
+	make -C /lib/modules/$(shell uname -r)/build M=$(PWD) modules
 
 clean:
-	$(MAKE) -C $(KERNEL_DIR) SUBDIRS=$(PWD) clean 
+	make -C /lib/modules/$(shell uname -r)/build M=$(PWD) clean

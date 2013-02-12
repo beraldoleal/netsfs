@@ -1,6 +1,16 @@
-/* vim: tabstop=4:softtabstop=4:shiftwidth=4:expandtab
- * */
-#include <linux/fs.h>
+/*
+ * inode.c - part of netsfs, a tiny little debug network packets file system
+ *
+ * Copyright (C) 2012 Beraldo Leal <beraldo@ime.usp.br>
+ *
+ * This program is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU General Public License version
+ * 2 as published by the Free Software Foundation.
+ *
+ * vim: tabstop=4:softtabstop=4:shiftwidth=4:expandtab
+ *
+ */
+
 #include <linux/module.h>
 #include <linux/pagemap.h>
 #include <linux/highmem.h>
@@ -8,44 +18,24 @@
 #include <linux/namei.h>
 #include <linux/init.h>
 #include <linux/string.h>
-#include <linux/backing-dev.h>
 #include <linux/sched.h>
-#include <linux/parser.h>
 #include <linux/magic.h>
 #include <linux/slab.h>
-#include <linux/ip.h>
-#include <linux/ipv6.h>
 #include <asm/uaccess.h>
-#include <linux/if_ether.h>
-#include <linux/skbuff.h>
 #include <linux/netdevice.h>
 
-#define NETSFS_MAGIC 0x8723892
-#define NETSFS_DEFAULT_MODE      0755
-
-#define STR(x)  #x
+#include "internal.h"
+#include "proto.h"
 
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Beraldo Leal");
 
-static const struct inode_operations netsfs_file_inode_operations;
+static struct packet_type netsfs_pseudo_proto;
 static const struct file_operations netsfs_file_operations;
-
-static int netsfs_create(struct inode *dir, struct dentry *dentry, int mode, struct nameidata *nd);
-static int netsfs_symlink(struct inode * dir, struct dentry *dentry, const char * symname);
-static int netsfs_mkdir(struct inode * dir, struct dentry * dentry, int mode);
-static int netsfs_mknod(struct inode *dir, struct dentry *dentry, int mode, dev_t dev);
-static int netsfs_create_by_name(const char *name, mode_t mode,
-        struct dentry *parent,
-        struct dentry **dentry,
-        void *data);
-
-
 static struct dentry *netsfs_root;
+static const struct inode_operations netsfs_file_inode_operations;
 
-struct packet_type netsfs_pseudo_proto;
-
-static const struct inode_operations netsfs_dir_inode_operations = {
+const struct inode_operations netsfs_dir_inode_operations = {
     .create         = netsfs_create,
     .lookup         = simple_lookup,
     .link           = simple_link,
@@ -57,98 +47,110 @@ static const struct inode_operations netsfs_dir_inode_operations = {
     .rename         = simple_rename,
 };
 
-static const struct super_operations netsfs_ops = {
+struct super_operations netsfs_ops = {
     .statfs         = simple_statfs,
     .drop_inode     = generic_delete_inode,
     .show_options   = generic_show_options,
 };
 
-struct netsfs_mount_opts {
-    umode_t mode;
-};
-
-enum {
-    Opt_mode,
-    Opt_err
-};
-
-static const match_table_t tokens = {
+const match_table_t tokens = {
     {Opt_mode, "mode=%o"},
     {Opt_err, NULL}
 };
 
 
-struct netsfs_fs_info {
-    struct netsfs_mount_opts mount_opts;
-};
-
-int netsfs_packet_handler(struct sk_buff *skb,
-        struct net_device *dev,
-        struct packet_type *pkt,
-        struct net_device *dev2)
+struct inode *netsfs_get_inode(struct super_block *sb,
+        const struct inode *dir, int mode, dev_t dev)
 {
+    struct inode * inode = new_inode(sb);
 
-    int len, err;
-    struct dentry *de_mac;
-    struct dentry *de_network;
-    struct dentry *de_transport;
+    if (inode) {
+        inode->i_ino = get_next_ino();
+        inode->i_mode = mode;
+        inode->i_atime = inode->i_mtime = inode->i_ctime = CURRENT_TIME;
+        switch (mode & S_IFMT) {
+            default:
+                init_special_inode(inode, mode, dev);
+                break;
+            case S_IFREG:
+                inode->i_op = &netsfs_file_inode_operations;
+                inode->i_fop = &netsfs_file_operations;
+                break;
+            case S_IFDIR:
+                inode->i_op = &netsfs_dir_inode_operations;
+                inode->i_fop = &simple_dir_operations;
 
-    char mac_name[8], network_name[6];
-
-    len = skb->len;
-    if (len > ETH_DATA_LEN) {
-        printk(KERN_INFO "%s:len > ETH_DATA_LEN!\n", THIS_MODULE->name);
-        err = -ENOMEM;
-        goto fail;
+                /* directory inodes start off with i_nlink == 2 (for "." entry) */
+                inc_nlink(inode);
+                break;
+            case S_IFLNK:
+                inode->i_op = &page_symlink_inode_operations;
+                break;
+        }
     }
-    /* check for ip header, in this case never will get nothing different of ETH_P_IP, but this switch
-     * is here just in case you change netsfs_pseudo_proto.type
-     */
-    switch (ntohs(eth_hdr(skb)->h_proto))
-    {
-        case ETH_P_IP:
-            sprintf(mac_name, "0x%.4x", ntohs(eth_hdr(skb)->h_proto));
-            sprintf(network_name, "0x%.2x", ip_hdr(skb)->protocol);
-            printk(KERN_INFO "%s: (%s %d, %s, %s) Packet\n",
-                   THIS_MODULE->name,
-                    skb->dev->name,
-                    skb->dev->type,
-                    mac_name, network_name);
-            netsfs_create_by_name(mac_name, S_IFDIR, NULL, &de_mac, NULL);
-            if (de_mac)
-                netsfs_create_by_name(network_name, S_IFDIR, de_mac, &de_network, NULL);
-            break;
-        case ETH_P_IPV6:
-            sprintf(mac_name, "0x%.4x", ntohs(eth_hdr(skb)->h_proto));
-            sprintf(network_name, "0x%.2x", ipv6_hdr(skb)->nexthdr);
-            printk(KERN_INFO "%s: (%s %d %s, %s) Packet\n",
-                   THIS_MODULE->name,
-                    skb->dev->name,
-                    skb->dev->type,
-                    mac_name,
-                    network_name);
-            netsfs_create_by_name(mac_name, S_IFDIR, NULL, &de_mac, NULL);
-            if (de_mac)
-                netsfs_create_by_name(network_name, S_IFDIR, de_mac, &de_network, NULL);
-            break;
-
-        default:
-            printk(KERN_INFO "%s: Unknow packet (0x%.4X, 0x%.4X)\n", THIS_MODULE->name, ntohs(pkt->type), ntohs(eth_hdr(skb)->h_proto));
-            break;
-    }
-
-    /* We need free the skb, this is a copy! */
-    dev_kfree_skb(skb);
-
-    return 0;
-
-fail:
-    dev_kfree_skb(skb);
-    return err;
+    return inode;
 }
 
 
-static int netsfs_parse_options(char *data, struct netsfs_mount_opts *opts)
+/*
+ * File creation. Allocate an inode, and we're done..
+ */
+/* SMP-safe */
+extern int netsfs_mknod(struct inode *dir, struct dentry *dentry, int mode, dev_t dev)
+{
+    struct inode *inode;
+    int error = -ENOSPC;
+
+    if (dentry->d_inode) {
+        printk("%s:%s:%d - dentry->d_inode != NULL, aborting.\n",
+                THIS_MODULE->name,
+                __FUNCTION__,
+                __LINE__);
+        return -EEXIST;
+    }
+
+    inode  = netsfs_get_inode(dir->i_sb, dir, mode, dev);
+    if (inode) {
+        d_instantiate(dentry, inode);
+        dget(dentry);   /* Extra count - pin the dentry in core */
+        error = 0;
+        dir->i_mtime = dir->i_ctime = CURRENT_TIME;
+    }
+    return error;
+}
+
+extern int netsfs_mkdir(struct inode * dir, struct dentry * dentry, int mode)
+{
+    int retval;
+
+    printk("%s:%s:%d - Start. dir->i_ino == %lu, dentry->d_iname == %s\n",
+            THIS_MODULE->name,
+            __FUNCTION__,
+            __LINE__,
+            dir->i_ino,
+            dentry->d_iname);
+
+    retval = netsfs_mknod(dir, dentry, mode | S_IFDIR, 0);
+
+    if (!retval)
+        inc_nlink(dir);
+
+    printk("%s:%s:%d - End. inode->i_ino == %lu, dentry->d_iname == %s\n",
+            THIS_MODULE->name,
+            __FUNCTION__,
+            __LINE__,
+            dir->i_ino,
+            dentry->d_iname);
+
+    return retval;
+}
+
+extern int netsfs_create(struct inode *dir, struct dentry *dentry, int mode, struct nameidata *nd)
+{
+    return netsfs_mknod(dir, dentry, mode | S_IFREG, 0);
+}
+
+extern int netsfs_parse_options(char *data, struct netsfs_mount_opts *opts)
 {
     substring_t args[MAX_OPT_ARGS];
     int option;
@@ -180,97 +182,8 @@ static int netsfs_parse_options(char *data, struct netsfs_mount_opts *opts)
     return 0;
 }
 
-struct inode *netsfs_get_inode(struct super_block *sb,
-        const struct inode *dir, int mode, dev_t dev)
-{
-    struct inode * inode = new_inode(sb);
 
-    if (inode) {
-        inode->i_ino = get_next_ino();
-        inode_init_owner(inode, dir, mode);
-        inode->i_atime = inode->i_mtime = inode->i_ctime = CURRENT_TIME;
-        switch (mode & S_IFMT) {
-            default:
-                init_special_inode(inode, mode, dev);
-                break;
-            case S_IFREG:
-                inode->i_op = &netsfs_file_inode_operations;
-                inode->i_fop = &netsfs_file_operations;
-                break;
-            case S_IFDIR:
-                inode->i_op = &netsfs_dir_inode_operations;
-                inode->i_fop = &simple_dir_operations;
-
-                /* directory inodes start off with i_nlink == 2 (for "." entry) */
-                inc_nlink(inode);
-                break;
-            case S_IFLNK:
-                inode->i_op = &page_symlink_inode_operations;
-                break;
-        }
-    }
-    return inode;
-}
-
-/*
- * File creation. Allocate an inode, and we're done..
- */
-/* SMP-safe */
-static int netsfs_mknod(struct inode *dir, struct dentry *dentry, int mode, dev_t dev)
-{
-    struct inode *inode;
-    int error = -ENOSPC;
-
-    if (dentry->d_inode) {
-        printk("%s:%s:%d - dentry->d_inode != NULL, aborting.\n",
-                THIS_MODULE->name,
-                __FUNCTION__,
-                __LINE__);
-        return -EEXIST;
-    }
-
-    inode  = netsfs_get_inode(dir->i_sb, dir, mode, dev);
-    if (inode) {
-        d_instantiate(dentry, inode);
-        dget(dentry);   /* Extra count - pin the dentry in core */
-        error = 0;
-        dir->i_mtime = dir->i_ctime = CURRENT_TIME;
-    }
-    return error;
-}
-
-static int netsfs_mkdir(struct inode * dir, struct dentry * dentry, int mode)
-{
-    int retval;
-
-    printk("%s:%s:%d - Start. dir->i_ino == %lu, dentry->d_iname == %s\n",
-            THIS_MODULE->name,
-            __FUNCTION__,
-            __LINE__,
-            dir->i_ino,
-            dentry->d_iname);
-
-    retval = netsfs_mknod(dir, dentry, mode | S_IFDIR, 0);
-
-    if (!retval)
-        inc_nlink(dir);
-
-    printk("%s:%s:%d - End. inode->i_ino == %lu, dentry->d_iname == %s\n",
-            THIS_MODULE->name,
-            __FUNCTION__,
-            __LINE__,
-            dir->i_ino,
-            dentry->d_iname);
-
-    return retval;
-}
-
-static int netsfs_create(struct inode *dir, struct dentry *dentry, int mode, struct nameidata *nd)
-{
-    return netsfs_mknod(dir, dentry, mode | S_IFREG, 0);
-}
-
-static int netsfs_symlink(struct inode * dir, struct dentry *dentry, const char * symname)
+extern int netsfs_symlink(struct inode * dir, struct dentry *dentry, const char * symname)
 {
     struct inode *inode;
     int error = -ENOSPC;
@@ -290,10 +203,8 @@ static int netsfs_symlink(struct inode * dir, struct dentry *dentry, const char 
 }
 
 
-static int netsfs_create_by_name(const char *name, mode_t mode,
-        struct dentry *parent,
-        struct dentry **dentry,
-        void *data)
+extern int netsfs_create_by_name(const char *name, mode_t mode, struct dentry *parent,
+                                 struct dentry **dentry, void *data)
 {
     int error = 0;
 
@@ -312,10 +223,10 @@ static int netsfs_create_by_name(const char *name, mode_t mode,
 
     *dentry = NULL;
 
-    // mutex_lock(&parent->d_inode->i_mutex);
-//    spin_lock(&parent->d_inode->i_lock);
+    /* TODO: Check the necessity of a lock here.
+     * mutex_lock(&parent->d_inode->i_mutex);
+     */
     *dentry = lookup_one_len(name, parent, strlen(name));
-
     if (!IS_ERR(*dentry)) {
         switch (mode & S_IFMT) {
             case S_IFDIR:
@@ -336,17 +247,13 @@ static int netsfs_create_by_name(const char *name, mode_t mode,
     } else
         error = PTR_ERR(*dentry);
 
-    //mutex_unlock(&parent->d_inode->i_mutex);
-//    spin_unlock(&parent->d_inode->i_lock);
-
+    /* mutex_unlock(&parent->d_inode->i_mutex); */
     printk("%s:%s:%d - End.\n",
             THIS_MODULE->name,
             __FUNCTION__,
             __LINE__);
 
-
     return error;
-
 }
 
 int netsfs_fill_super(struct super_block *sb, void *data, int silent)
@@ -397,15 +304,6 @@ fail:
     return err;
 }
 
-static void netsfs_register_pack(void)
-{
-    netsfs_pseudo_proto.type = htons(ETH_P_ALL);
-    netsfs_pseudo_proto.dev = NULL;
-    netsfs_pseudo_proto.func = netsfs_packet_handler;
-    dev_add_pack(&netsfs_pseudo_proto);
-}
-
-
 struct dentry *netsfs_mount(struct file_system_type *fs_type,
         int flags, const char *dev_name, void *data)
 {
@@ -417,7 +315,12 @@ struct dentry *netsfs_mount(struct file_system_type *fs_type,
         goto out;
 
     netsfs_root = root;
-    netsfs_register_pack();
+
+    /* register a packet handler */
+    netsfs_pseudo_proto.type = htons(ETH_P_ALL);
+    netsfs_pseudo_proto.dev = NULL;
+    netsfs_pseudo_proto.func = netsfs_packet_handler;
+    dev_add_pack(&netsfs_pseudo_proto);
 
     printk("%s:%s:%d - End.\n", THIS_MODULE->name, __FUNCTION__, __LINE__);
 
@@ -430,7 +333,6 @@ struct dentry *netsfs_mount(struct file_system_type *fs_type,
 out:
     return root;
 }
-
 
 static void netsfs_kill_sb(struct super_block *sb) {
     dev_remove_pack(&netsfs_pseudo_proto);
@@ -447,7 +349,6 @@ static struct file_system_type netsfs_fs_type = {
 static int __init netsfs_init(void)
 {
     int err;
-    //struct dentry *dentry;
 
     printk("Kernel now with netsfs support.\n");
     err = register_filesystem(&netsfs_fs_type);
@@ -461,7 +362,6 @@ static int __init netsfs_init(void)
 static void __exit netsfs_exit(void)
 {
     printk("Kernel now without netsfs support.\n");
-
     unregister_filesystem(&netsfs_fs_type);
 }
 
