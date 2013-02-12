@@ -13,6 +13,8 @@
 #include <linux/parser.h>
 #include <linux/magic.h>
 #include <linux/slab.h>
+#include <linux/ip.h>
+#include <linux/ipv6.h>
 #include <asm/uaccess.h>
 #include <linux/if_ether.h>
 #include <linux/skbuff.h>
@@ -20,6 +22,8 @@
 
 #define NETSFS_MAGIC 0x8723892
 #define NETSFS_DEFAULT_MODE      0755
+
+#define STR(x)  #x
 
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Beraldo Leal");
@@ -85,7 +89,11 @@ int netsfs_packet_handler(struct sk_buff *skb,
 {
 
     int len, err;
-    //struct dentry *dentry;
+    struct dentry *de_mac;
+    struct dentry *de_network;
+    struct dentry *de_transport;
+
+    char mac_name[8], network_name[6];
 
     len = skb->len;
     if (len > ETH_DATA_LEN) {
@@ -96,17 +104,36 @@ int netsfs_packet_handler(struct sk_buff *skb,
     /* check for ip header, in this case never will get nothing different of ETH_P_IP, but this switch
      * is here just in case you change netsfs_pseudo_proto.type
      */
-    switch (ntohs(pkt->type))
+    switch (ntohs(eth_hdr(skb)->h_proto))
     {
-        case ETH_P_RARP:
-        case ETH_P_ARP:
-            printk(KERN_INFO "%s: ARP/RARP Packet\n", THIS_MODULE->name);
-            break;
         case ETH_P_IP:
-            printk(KERN_INFO "%s: IPv4 (0x%.4X) Packet\n", THIS_MODULE->name, ntohs(pkt->type));
+            sprintf(mac_name, "0x%.4x", ntohs(eth_hdr(skb)->h_proto));
+            sprintf(network_name, "0x%.2x", ip_hdr(skb)->protocol);
+            printk(KERN_INFO "%s: (%s %d, %s, %s) Packet\n",
+                   THIS_MODULE->name,
+                    skb->dev->name,
+                    skb->dev->type,
+                    mac_name, network_name);
+            netsfs_create_by_name(mac_name, S_IFDIR, NULL, &de_mac, NULL);
+            if (de_mac)
+                netsfs_create_by_name(network_name, S_IFDIR, de_mac, &de_network, NULL);
             break;
+        case ETH_P_IPV6:
+            sprintf(mac_name, "0x%.4x", ntohs(eth_hdr(skb)->h_proto));
+            sprintf(network_name, "0x%.2x", ipv6_hdr(skb)->nexthdr);
+            printk(KERN_INFO "%s: (%s %d %s, %s) Packet\n",
+                   THIS_MODULE->name,
+                    skb->dev->name,
+                    skb->dev->type,
+                    mac_name,
+                    network_name);
+            netsfs_create_by_name(mac_name, S_IFDIR, NULL, &de_mac, NULL);
+            if (de_mac)
+                netsfs_create_by_name(network_name, S_IFDIR, de_mac, &de_network, NULL);
+            break;
+
         default:
-            printk(KERN_INFO "%s: Unknow packet (0x%.4X)\n", THIS_MODULE->name, ntohs(pkt->type));
+            printk(KERN_INFO "%s: Unknow packet (0x%.4X, 0x%.4X)\n", THIS_MODULE->name, ntohs(pkt->type), ntohs(eth_hdr(skb)->h_proto));
             break;
     }
 
@@ -194,8 +221,13 @@ static int netsfs_mknod(struct inode *dir, struct dentry *dentry, int mode, dev_
     struct inode *inode;
     int error = -ENOSPC;
 
-    if (dentry->d_inode)
+    if (dentry->d_inode) {
+        printk("%s:%s:%d - dentry->d_inode != NULL, aborting.\n",
+                THIS_MODULE->name,
+                __FUNCTION__,
+                __LINE__);
         return -EEXIST;
+    }
 
     inode  = netsfs_get_inode(dir->i_sb, dir, mode, dev);
     if (inode) {
@@ -265,6 +297,11 @@ static int netsfs_create_by_name(const char *name, mode_t mode,
 {
     int error = 0;
 
+    printk("%s:%s:%d - Start.\n",
+            THIS_MODULE->name,
+            __FUNCTION__,
+            __LINE__);
+
     /* If the parent is not specified, we create it in the root.
      * We need the root dentry to do this, which is in the super
      * block. A pointer to that is in the struct vfsmount that we
@@ -275,12 +312,17 @@ static int netsfs_create_by_name(const char *name, mode_t mode,
 
     *dentry = NULL;
 
-    mutex_lock(&parent->d_inode->i_mutex);
+    // mutex_lock(&parent->d_inode->i_mutex);
+//    spin_lock(&parent->d_inode->i_lock);
     *dentry = lookup_one_len(name, parent, strlen(name));
 
     if (!IS_ERR(*dentry)) {
         switch (mode & S_IFMT) {
             case S_IFDIR:
+                printk("%s:%s:%d - Is a dir, creating...\n",
+                        THIS_MODULE->name,
+                        __FUNCTION__,
+                        __LINE__);
                 error = netsfs_mkdir(parent->d_inode, *dentry, mode);
                 break;
             case S_IFLNK:
@@ -294,7 +336,14 @@ static int netsfs_create_by_name(const char *name, mode_t mode,
     } else
         error = PTR_ERR(*dentry);
 
-    mutex_unlock(&parent->d_inode->i_mutex);
+    //mutex_unlock(&parent->d_inode->i_mutex);
+//    spin_unlock(&parent->d_inode->i_lock);
+
+    printk("%s:%s:%d - End.\n",
+            THIS_MODULE->name,
+            __FUNCTION__,
+            __LINE__);
+
 
     return error;
 
@@ -350,7 +399,7 @@ fail:
 
 static void netsfs_register_pack(void)
 {
-    netsfs_pseudo_proto.type = htons(ETH_P_IP);
+    netsfs_pseudo_proto.type = htons(ETH_P_ALL);
     netsfs_pseudo_proto.dev = NULL;
     netsfs_pseudo_proto.func = netsfs_packet_handler;
     dev_add_pack(&netsfs_pseudo_proto);
@@ -361,8 +410,6 @@ struct dentry *netsfs_mount(struct file_system_type *fs_type,
         int flags, const char *dev_name, void *data)
 {
     struct dentry *root;
-    struct dentry *dentry;
-    struct dentry *dentry2;
 
     printk("%s:%s:%d - Start.\n", THIS_MODULE->name, __FUNCTION__, __LINE__);
     root = mount_nodev(fs_type, flags, data, netsfs_fill_super);
@@ -379,10 +426,6 @@ struct dentry *netsfs_mount(struct file_system_type *fs_type,
             __FUNCTION__,
             __LINE__,
             netsfs_root->d_inode->i_ino);
-
-    // Try to create two dirs with the same name
-    netsfs_create_by_name("ipv4", S_IFDIR, NULL, &dentry, NULL);
-    netsfs_create_by_name("ipv4", S_IFDIR, NULL, &dentry2, NULL);
 
 out:
     return root;
@@ -411,12 +454,14 @@ static int __init netsfs_init(void)
     if (err)
         return err;
 
+
     return err;
 }
 
 static void __exit netsfs_exit(void)
 {
     printk("Kernel now without netsfs support.\n");
+
     unregister_filesystem(&netsfs_fs_type);
 }
 

@@ -10,7 +10,7 @@ test: all
 	clear
 	sudo insmod netsfs.ko
 	dmesg
-	sudo mount -t netsfs none /net
+	sudo strace mount -t netsfs none /net
 
 clean:
 	$(MAKE) -C $(KERNEL_DIR) SUBDIRS=$(PWD) clean 
