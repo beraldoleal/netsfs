@@ -16,6 +16,7 @@
 #include <linux/highmem.h>
 #include <linux/time.h>
 #include <linux/namei.h>
+#include <linux/atomic.h>
 #include <linux/init.h>
 #include <linux/string.h>
 #include <linux/sched.h>
@@ -57,6 +58,23 @@ const match_table_t tokens = {
     {Opt_mode, "mode=%o"},
     {Opt_err, NULL}
 };
+
+
+extern void netsfs_inc_inode_size(struct inode *inode, loff_t inc)
+{
+    loff_t oldsize, newsize;
+
+    printk(KERN_INFO "%s: Updating inode %lu size to %lld\n",
+            THIS_MODULE->name,
+            inode->i_ino,
+            inc);
+
+    spin_lock(&inode->i_lock);
+        oldsize = i_size_read(inode);
+        newsize = oldsize + inc;
+    i_size_write(inode, newsize);
+    spin_unlock(&inode->i_lock);
+}
 
 
 struct inode *netsfs_get_inode(struct super_block *sb,

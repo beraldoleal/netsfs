@@ -34,6 +34,8 @@ extern int netsfs_create_by_name(const char *name, mode_t mode, struct dentry *p
                                  struct dentry **dentry, void *data);
 
 
+extern void netsfs_inc_inode_size(struct inode *inode, loff_t inc);
+
 struct netsfs_mount_opts {
     umode_t mode;
 };
