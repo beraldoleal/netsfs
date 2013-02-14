@@ -66,10 +66,9 @@ int netsfs_packet_handler(struct sk_buff *skb, struct net_device *dev, struct pa
             network_name,
             skb->len);
 
+    /* TODO: Put this on a bottom halves, may be a work queue ? */
     netsfs_create_by_name(mac_name, S_IFDIR, NULL, &de_mac, NULL);
     if (de_mac) {
-        printk("de_mac found name = %s\n", de_mac->d_iname);
-        netsfs_inc_inode_size(de_mac->d_inode, skb->len);
         netsfs_create_by_name(network_name, S_IFDIR, de_mac, &de_network, NULL);
     }
 
