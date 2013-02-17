@@ -82,7 +82,6 @@ int netsfs_packet_handler(struct sk_buff *skb, struct net_device *dev, struct pa
     if (!netsfsinfo) {
         err = -ENOMEM;
         goto free;
-    }
 
     netsfsinfo->x = 10;
     INIT_WORK(&netsfsinfo->my_work, netsfs_go);
