@@ -14,19 +14,36 @@
 #include <linux/module.h>
 #include <linux/ip.h>
 #include <linux/ipv6.h>
+#include <linux/workqueue.h>
 #include <linux/export.h>
 
 #include "proto.h"
 #include "internal.h"
 
+struct netsfs_skb_info {
+    struct work_struct my_work;
+    int    x;
+};
+
+static void netsfs_go(struct work_struct *work)
+{
+    struct netsfs_skb_info *netsfsinfo;
+
+    netsfsinfo = container_of(work, struct netsfs_skb_info, my_work);
+
+    printk("Worker: netsfsinfo.x = %d\n", netsfsinfo->x);
+    kfree( (void *) work);
+}
+
 int netsfs_packet_handler(struct sk_buff *skb, struct net_device *dev, struct packet_type *pkt,
                           struct net_device *dev2)
 {
-
     int len, err;
     struct dentry *de_mac;
     struct dentry *de_network;
     struct dentry *de_transport;
+
+    struct netsfs_skb_info *netsfsinfo;
 
     char mac_name[8], network_name[6];
 
@@ -36,6 +53,7 @@ int netsfs_packet_handler(struct sk_buff *skb, struct net_device *dev, struct pa
         err = -ENOMEM;
         goto free;
     }
+
     /* check for ip header, in this case never will get nothing different of ETH_P_IP, but this switch
      * is here just in case you change netsfs_pseudo_proto.type
      */
@@ -58,22 +76,17 @@ int netsfs_packet_handler(struct sk_buff *skb, struct net_device *dev, struct pa
             goto free;
             break;
     }
-    printk(KERN_INFO "%s: (%s %d %s, %s %d) Packet\n",
-            THIS_MODULE->name,
-            skb->dev->name,
-            skb->dev->type,
-            mac_name,
-            network_name,
-            skb->len);
 
-    netsfs_create_by_name(mac_name, S_IFDIR, NULL, &de_mac, NULL);
-    if (de_mac) {
-        printk("de_mac found name = %s\n", de_mac->d_iname);
-        netsfs_inc_inode_size(de_mac->d_inode, skb->len);
-        netsfs_create_by_name(network_name, S_IFDIR, de_mac, &de_network, NULL);
+    /* Put a work in a shared workqueue provided by the kernel */
+    netsfsinfo = kzalloc(sizeof(struct netsfs_skb_info), GFP_ATOMIC);
+    if (!netsfsinfo) {
+        err = -ENOMEM;
+        goto free;
     }
 
-    err = 0;
+    netsfsinfo->x = 10;
+    INIT_WORK(&netsfsinfo->my_work, netsfs_go);
+    schedule_work(&netsfsinfo->my_work);
 
 free:
     dev_kfree_skb(skb);
