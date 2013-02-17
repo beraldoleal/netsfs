@@ -70,8 +70,8 @@ extern void netsfs_inc_inode_size(struct inode *inode, loff_t inc)
             inc);
 
     spin_lock(&inode->i_lock);
-        oldsize = i_size_read(inode);
-        newsize = oldsize + inc;
+    oldsize = i_size_read(inode);
+    newsize = oldsize + inc;
     i_size_write(inode, newsize);
     spin_unlock(&inode->i_lock);
 }
@@ -241,9 +241,7 @@ extern int netsfs_create_by_name(const char *name, mode_t mode, struct dentry *p
 
     *dentry = NULL;
 
-    /* TODO: Check the necessity of a lock here.
-     * mutex_lock(&parent->d_inode->i_mutex);
-     */
+    mutex_lock(&parent->d_inode->i_mutex);
     *dentry = lookup_one_len(name, parent, strlen(name));
     if (!IS_ERR(*dentry)) {
         switch (mode & S_IFMT) {
@@ -265,7 +263,7 @@ extern int netsfs_create_by_name(const char *name, mode_t mode, struct dentry *p
     } else
         error = PTR_ERR(*dentry);
 
-    /* mutex_unlock(&parent->d_inode->i_mutex); */
+    mutex_unlock(&parent->d_inode->i_mutex);
     printk("%s:%s:%d - End.\n",
             THIS_MODULE->name,
             __FUNCTION__,

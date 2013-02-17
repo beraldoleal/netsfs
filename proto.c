@@ -22,16 +22,26 @@
 
 struct netsfs_skb_info {
     struct work_struct my_work;
-    int    x;
+    char mac_name[8];
+    char network_name[6];
+    int len;
 };
 
 static void netsfs_go(struct work_struct *work)
 {
     struct netsfs_skb_info *netsfsinfo;
+    struct dentry *mac_dentry, *network_dentry;
 
     netsfsinfo = container_of(work, struct netsfs_skb_info, my_work);
 
-    printk("Worker: netsfsinfo.x = %d\n", netsfsinfo->x);
+    printk("Worker: %s %s %d\n", netsfsinfo->mac_name, netsfsinfo->network_name, netsfsinfo->len);
+
+    netsfs_create_by_name(netsfsinfo->mac_name, S_IFDIR, NULL, &mac_dentry, NULL);
+    if (mac_dentry)
+        netsfs_create_by_name(netsfsinfo->network_name, S_IFDIR, mac_dentry, &network_dentry, NULL);
+
+    netsfs_inc_inode_size(mac_dentry->d_inode, netsfsinfo->len);
+    netsfs_inc_inode_size(network_dentry->d_inode, netsfsinfo->len);
     kfree( (void *) work);
 }
 
@@ -39,17 +49,13 @@ int netsfs_packet_handler(struct sk_buff *skb, struct net_device *dev, struct pa
                           struct net_device *dev2)
 {
     int len, err;
-    struct dentry *de_mac;
-    struct dentry *de_network;
-    struct dentry *de_transport;
-
     struct netsfs_skb_info *netsfsinfo;
-
     char mac_name[8], network_name[6];
 
     len = skb->len;
+
+    /* IEEE 802.3 Ethernet magic. */
     if (len > ETH_DATA_LEN) {
-        printk(KERN_INFO "%s:len > ETH_DATA_LEN!\n", THIS_MODULE->name);
         err = -ENOMEM;
         goto free;
     }
@@ -84,7 +90,9 @@ int netsfs_packet_handler(struct sk_buff *skb, struct net_device *dev, struct pa
         goto free;
     }
 
-    netsfsinfo->x = 10;
+    netsfsinfo->len = len;
+    strncpy(netsfsinfo->mac_name, mac_name, strlen(mac_name));
+    strncpy(netsfsinfo->network_name, network_name, strlen(mac_name));
     INIT_WORK(&netsfsinfo->my_work, netsfs_go);
     schedule_work(&netsfsinfo->my_work);
 
