@@ -17,4 +17,5 @@ extern void netsfs_register_pack(void);
 
 int netsfs_packet_handler(struct sk_buff *skb, struct net_device *dev, struct packet_type *pkt,
                           struct net_device *dev2);
+
 #endif

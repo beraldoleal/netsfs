@@ -21,6 +21,12 @@
 #define NETSFS_DEFAULT_MODE      0755
 
 #define STR(x)  #x
+typedef enum {
+    NETSFS_DIR = 0,
+    NETSFS_STATS = 1,
+    NETSFS_STREAM = 2
+} netsfs_file_type_t;
+
 
 struct inode *netsfs_get_inode(struct super_block *sb,
         const struct inode *dir, int mode, dev_t dev);
@@ -31,7 +37,7 @@ extern int netsfs_symlink(struct inode * dir, struct dentry *dentry, const char 
 
 
 extern int netsfs_create_by_name(const char *name, mode_t mode, struct dentry *parent,
-                                 struct dentry **dentry, void *data);
+                                 struct dentry **dentry, void *data, netsfs_file_type_t type);
 
 
 extern void netsfs_inc_inode_size(struct inode *inode, loff_t inc);

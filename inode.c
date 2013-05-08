@@ -32,9 +32,26 @@ MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Beraldo Leal");
 
 static struct packet_type netsfs_pseudo_proto;
-static const struct file_operations netsfs_file_operations;
 static struct dentry *netsfs_root;
 static const struct inode_operations netsfs_file_inode_operations;
+
+struct netsfs_file_private {
+    netsfs_file_type_t type;
+};
+
+static ssize_t netsfs_file_read(struct file *file, char __user *buf,
+                                size_t count, loff_t *ppos)
+{
+    ssize_t length;
+    char line[100];
+
+    length = -ENOMEM;
+    length = sprintf(line, "type: %d\n", ((struct netsfs_file_private *) file->f_dentry->d_inode->i_private)->type);
+    if (length >0)
+        length = simple_read_from_buffer(buf, count, ppos, line, length);
+
+    return length;
+}
 
 const struct inode_operations netsfs_dir_inode_operations = {
     .create         = netsfs_create,
@@ -54,15 +71,27 @@ struct super_operations netsfs_ops = {
     .show_options   = generic_show_options,
 };
 
+static const struct file_operations netsfs_file_operations = {
+    .read           = netsfs_file_read,
+};
+
 const match_table_t tokens = {
     {Opt_mode, "mode=%o"},
     {Opt_err, NULL}
 };
 
+struct netsfs_dir_private {
+    u64 count;      // how many frames/packets
+    u64 errors;     // how many errors
+    loff_t bytes;   // total bytes
+};
+
+
 
 extern void netsfs_inc_inode_size(struct inode *inode, loff_t inc)
 {
     loff_t oldsize, newsize;
+    struct netsfs_dir_private *private;
 
     printk(KERN_INFO "%s: Updating inode %lu size to %lld\n",
             THIS_MODULE->name,
@@ -74,6 +103,14 @@ extern void netsfs_inc_inode_size(struct inode *inode, loff_t inc)
     newsize = oldsize + inc;
     i_size_write(inode, newsize);
     spin_unlock(&inode->i_lock);
+
+    if (inode->i_private == NULL) {
+        private = kmalloc(sizeof(struct netsfs_dir_private), GFP_KERNEL);
+        private->bytes = newsize;
+        inode->i_private = private; // LOCK HERE
+    }else{
+        ((struct netsfs_dir_private *) inode->i_private)->bytes = newsize;
+    }
 }
 
 
@@ -114,7 +151,8 @@ struct inode *netsfs_get_inode(struct super_block *sb,
  * File creation. Allocate an inode, and we're done..
  */
 /* SMP-safe */
-extern int netsfs_mknod(struct inode *dir, struct dentry *dentry, int mode, dev_t dev)
+extern int netsfs_mknod(struct inode *dir, struct dentry *dentry, int mode,
+                        dev_t dev)
 {
     struct inode *inode;
     int error = -ENOSPC;
@@ -150,20 +188,23 @@ extern int netsfs_mkdir(struct inode * dir, struct dentry * dentry, int mode)
 
     retval = netsfs_mknod(dir, dentry, mode | S_IFDIR, 0);
 
-    if (!retval)
+    if (!retval) {
         inc_nlink(dir);
-
-    printk("%s:%s:%d - End. inode->i_ino == %lu, dentry->d_iname == %s\n",
-            THIS_MODULE->name,
-            __FUNCTION__,
-            __LINE__,
-            dir->i_ino,
-            dentry->d_iname);
+        printk("%s:%s:%d - End. inode->i_ino == %lu, dentry->d_iname == %s\n",
+                THIS_MODULE->name,
+                __FUNCTION__,
+                __LINE__,
+                dir->i_ino,
+                dentry->d_iname);
+    }
 
     return retval;
+
+
 }
 
-extern int netsfs_create(struct inode *dir, struct dentry *dentry, int mode, struct nameidata *nd)
+extern int netsfs_create(struct inode *dir, struct dentry *dentry, int mode,
+                         struct nameidata *nd)
 {
     return netsfs_mknod(dir, dentry, mode | S_IFREG, 0);
 }
@@ -222,7 +263,7 @@ extern int netsfs_symlink(struct inode * dir, struct dentry *dentry, const char 
 
 
 extern int netsfs_create_by_name(const char *name, mode_t mode, struct dentry *parent,
-                                 struct dentry **dentry, void *data)
+                                 struct dentry **dentry, void *data, netsfs_file_type_t type)
 {
     int error = 0;
 
@@ -257,6 +298,15 @@ extern int netsfs_create_by_name(const char *name, mode_t mode, struct dentry *p
                 //        break;
             default:
                 error = netsfs_create(parent->d_inode, *dentry, mode, data);
+                if (!error) {
+                    if ((*dentry)->d_inode->i_private == NULL) {
+                        (*dentry)->d_inode->i_private = kmalloc(sizeof(struct netsfs_file_private), GFP_KERNEL);
+                        if (!(*dentry)->d_inode->i_private)
+                            return -ENOMEM;
+                    }
+                    ((struct netsfs_file_private *) (*dentry)->d_inode->i_private)->type = type;
+                }
+
                 break;
         }
         dput(*dentry);

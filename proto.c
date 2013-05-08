@@ -27,21 +27,30 @@ struct netsfs_skb_info {
     int len;
 };
 
+/* Top Halve.
+ * Work scheduled earlier is done now, here.
+ */
 static void netsfs_go(struct work_struct *work)
 {
     struct netsfs_skb_info *netsfsinfo;
-    struct dentry *mac_dentry, *network_dentry;
+    struct dentry *mac_dentry, *network_dentry, *network_stats_dentry;
 
     netsfsinfo = container_of(work, struct netsfs_skb_info, my_work);
 
     printk("Worker: %s %s %d\n", netsfsinfo->mac_name, netsfsinfo->network_name, netsfsinfo->len);
 
-    netsfs_create_by_name(netsfsinfo->mac_name, S_IFDIR, NULL, &mac_dentry, NULL);
-    if (mac_dentry)
-        netsfs_create_by_name(netsfsinfo->network_name, S_IFDIR, mac_dentry, &network_dentry, NULL);
+    netsfs_create_by_name(netsfsinfo->mac_name, S_IFDIR, NULL, &mac_dentry, NULL, NETSFS_DIR);
+    if (mac_dentry) {
+        netsfs_create_by_name("stats", S_IFREG, mac_dentry, &network_stats_dentry, NULL, NETSFS_STATS);
+        netsfs_create_by_name("stream", S_IFREG, mac_dentry, &network_stats_dentry, NULL, NETSFS_STREAM);
+        netsfs_create_by_name(netsfsinfo->network_name, S_IFDIR, mac_dentry, &network_dentry, NULL, NETSFS_DIR);
+    }
 
+    /* Increment size of inode */
     netsfs_inc_inode_size(mac_dentry->d_inode, netsfsinfo->len);
     netsfs_inc_inode_size(network_dentry->d_inode, netsfsinfo->len);
+
+
     kfree( (void *) work);
 }
 
