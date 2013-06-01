@@ -39,18 +39,39 @@ struct netsfs_file_private {
     netsfs_file_type_t type;
 };
 
+struct netsfs_dir_private {
+    u64 count;      // how many frames/packets
+    u64 errors;     // how many errors
+    loff_t bytes;   // total bytes
+};
+
 static ssize_t netsfs_file_read(struct file *file, char __user *buf,
                                 size_t count, loff_t *ppos)
 {
     ssize_t length;
+    struct netsfs_file_private *f_private;
+    struct netsfs_dir_private *d_private;
     char line[100];
 
-    length = -ENOMEM;
-    length = sprintf(line, "type: %d\n", ((struct netsfs_file_private *) file->f_dentry->d_inode->i_private)->type);
-    if (length >0)
-        length = simple_read_from_buffer(buf, count, ppos, line, length);
 
-    return length;
+    length = -ENOMEM;
+    f_private = file->f_dentry->d_inode->i_private;
+    d_private = file->f_dentry->d_parent->d_inode->i_private;
+
+    if (f_private->type == NETSFS_STATS) {
+        length = sprintf(line, "bytes: %lld\ncount: %lld\n", d_private->bytes, d_private->count);
+        if (length >0)
+            length = simple_read_from_buffer(buf, count, ppos, line, length);
+        return length;
+    }
+
+/*
+    printk("AQUI: %lld\n",
+                     ((struct netsfs_dir_private *) file->f_dentry->d_parent->d_inode->i_private)->bytes);
+*/
+
+
+    return 0;
 }
 
 const struct inode_operations netsfs_dir_inode_operations = {
@@ -80,11 +101,6 @@ const match_table_t tokens = {
     {Opt_err, NULL}
 };
 
-struct netsfs_dir_private {
-    u64 count;      // how many frames/packets
-    u64 errors;     // how many errors
-    loff_t bytes;   // total bytes
-};
 
 
 
@@ -102,15 +118,17 @@ extern void netsfs_inc_inode_size(struct inode *inode, loff_t inc)
     oldsize = i_size_read(inode);
     newsize = oldsize + inc;
     i_size_write(inode, newsize);
-    spin_unlock(&inode->i_lock);
 
     if (inode->i_private == NULL) {
         private = kmalloc(sizeof(struct netsfs_dir_private), GFP_KERNEL);
         private->bytes = newsize;
+        private->count = 1;
         inode->i_private = private; // LOCK HERE
     }else{
         ((struct netsfs_dir_private *) inode->i_private)->bytes = newsize;
+        ((struct netsfs_dir_private *) inode->i_private)->count += 1;
     }
+    spin_unlock(&inode->i_lock);
 }
 
 
@@ -199,8 +217,6 @@ extern int netsfs_mkdir(struct inode * dir, struct dentry * dentry, int mode)
     }
 
     return retval;
-
-
 }
 
 extern int netsfs_create(struct inode *dir, struct dentry *dentry, int mode,

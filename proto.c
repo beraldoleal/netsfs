@@ -39,14 +39,24 @@ static void netsfs_go(struct work_struct *work)
 
     printk("Worker: %s %s %d\n", netsfsinfo->mac_name, netsfsinfo->network_name, netsfsinfo->len);
 
+    /* Create mac dir */
     netsfs_create_by_name(netsfsinfo->mac_name, S_IFDIR, NULL, &mac_dentry, NULL, NETSFS_DIR);
+    /* Create top level stats and stream files */
+    netsfs_create_by_name("stats", S_IFREG, NULL, &network_stats_dentry, NULL, NETSFS_STATS);
+    netsfs_create_by_name("stream", S_IFREG, NULL, &network_stats_dentry, NULL, NETSFS_STREAM);
+
     if (mac_dentry) {
         netsfs_create_by_name("stats", S_IFREG, mac_dentry, &network_stats_dentry, NULL, NETSFS_STATS);
         netsfs_create_by_name("stream", S_IFREG, mac_dentry, &network_stats_dentry, NULL, NETSFS_STREAM);
         netsfs_create_by_name(netsfsinfo->network_name, S_IFDIR, mac_dentry, &network_dentry, NULL, NETSFS_DIR);
+        if (network_dentry) {
+            netsfs_create_by_name("stats", S_IFREG, network_dentry, &network_stats_dentry, NULL, NETSFS_STATS);
+            netsfs_create_by_name("stream", S_IFREG, network_dentry, &network_stats_dentry, NULL, NETSFS_STREAM);
+        }
     }
 
     /* Increment size of inode */
+    netsfs_inc_inode_size(mac_dentry->d_parent->d_inode, netsfsinfo->len);
     netsfs_inc_inode_size(mac_dentry->d_inode, netsfsinfo->len);
     netsfs_inc_inode_size(network_dentry->d_inode, netsfsinfo->len);
 
@@ -54,6 +64,9 @@ static void netsfs_go(struct work_struct *work)
     kfree( (void *) work);
 }
 
+/* Bottom Halve.
+ * Grab the packet in Interrupt Context, we need be fast here.
+ */
 int netsfs_packet_handler(struct sk_buff *skb, struct net_device *dev, struct packet_type *pkt,
                           struct net_device *dev2)
 {
