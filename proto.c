@@ -135,10 +135,10 @@ unsigned int get_skb_len(struct sk_buff *skb)
 /* Top Halve.
  * Work scheduled earlier is done now, here.
  */
-static void netsfs_go(struct work_struct *work)
+static void netsfs_top(struct work_struct *work)
 {
     struct netsfs_skb_info *netsfsinfo;
-    struct dentry *mac_dentry, *network_dentry;
+    struct dentry *network_dentry, *transport_dentry;
     unsigned int len;
 
     netsfsinfo = container_of(work, struct netsfs_skb_info, my_work);
@@ -147,24 +147,24 @@ static void netsfs_go(struct work_struct *work)
     netsfs_create_files(NULL);
 
     /* Create L3 dir */
-    netsfs_create_dir(get_ether_type(netsfsinfo->skb), NULL, &mac_dentry);
+    netsfs_create_dir(get_ether_type(netsfsinfo->skb), NULL, &network_dentry);
 
-    if (mac_dentry) {
+    if (network_dentry) {
         /* Create L3 files */
-        netsfs_create_files(mac_dentry);
+        netsfs_create_files(network_dentry);
         /* Create L4 dir */
-        netsfs_create_dir(get_ip_protocol(netsfsinfo->skb), mac_dentry, &network_dentry);
-        if (network_dentry) {
+        netsfs_create_dir(get_ip_protocol(netsfsinfo->skb), network_dentry, &transport_dentry);
+        if (transport_dentry) {
             /* Create L4 files */
-            netsfs_create_files(network_dentry);
+            netsfs_create_files(transport_dentry);
         }
     }
 
     len = get_skb_len(netsfsinfo->skb);
 
-    netsfs_inc_inode_size(mac_dentry->d_parent->d_inode, len);
-    netsfs_inc_inode_size(mac_dentry->d_inode, len);
+    netsfs_inc_inode_size(network_dentry->d_parent->d_inode, len);
     netsfs_inc_inode_size(network_dentry->d_inode, len);
+    netsfs_inc_inode_size(transport_dentry->d_inode, len);
 
     /* Free stuff */
     dev_kfree_skb(netsfsinfo->skb);
@@ -203,7 +203,7 @@ int netsfs_packet_handler(struct sk_buff *skb, struct net_device *dev, struct pa
             }
 
             netsfsinfo->skb = skb;
-            INIT_WORK(&netsfsinfo->my_work, netsfs_go);
+            INIT_WORK(&netsfsinfo->my_work, netsfs_top);
             schedule_work(&netsfsinfo->my_work);
 
             break;
