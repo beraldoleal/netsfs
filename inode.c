@@ -65,12 +65,6 @@ static ssize_t netsfs_file_read(struct file *file, char __user *buf,
         return length;
     }
 
-/*
-    printk("AQUI: %lld\n",
-                     ((struct netsfs_dir_private *) file->f_dentry->d_parent->d_inode->i_private)->bytes);
-*/
-
-
     return 0;
 }
 
@@ -109,10 +103,10 @@ extern void netsfs_inc_inode_size(struct inode *inode, loff_t inc)
     loff_t oldsize, newsize;
     struct netsfs_dir_private *private;
 
-    printk(KERN_INFO "%s: Updating inode %lu size to %lld\n",
-            THIS_MODULE->name,
-            inode->i_ino,
-            inc);
+    //printk(KERN_INFO "%s: Updating inode %lu size to %lld\n",
+    //        THIS_MODULE->name,
+    //        inode->i_ino,
+    //        inc);
 
     spin_lock(&inode->i_lock);
     oldsize = i_size_read(inode);
@@ -176,10 +170,10 @@ extern int netsfs_mknod(struct inode *dir, struct dentry *dentry, int mode,
     int error = -ENOSPC;
 
     if (dentry->d_inode) {
-        printk("%s:%s:%d - dentry->d_inode != NULL, aborting.\n",
-                THIS_MODULE->name,
-                __FUNCTION__,
-                __LINE__);
+        //printk("%s:%s:%d - dentry->d_inode != NULL, aborting.\n",
+        //        THIS_MODULE->name,
+        //        __FUNCTION__,
+        //        __LINE__);
         return -EEXIST;
     }
 
@@ -197,23 +191,23 @@ extern int netsfs_mkdir(struct inode * dir, struct dentry * dentry, int mode)
 {
     int retval;
 
-    printk("%s:%s:%d - Start. dir->i_ino == %lu, dentry->d_iname == %s\n",
-            THIS_MODULE->name,
-            __FUNCTION__,
-            __LINE__,
-            dir->i_ino,
-            dentry->d_iname);
+    //printk("%s:%s:%d - Start. dir->i_ino == %lu, dentry->d_iname == %s\n",
+    //        THIS_MODULE->name,
+    //        __FUNCTION__,
+    //        __LINE__,
+    //        dir->i_ino,
+    //        dentry->d_iname);
 
     retval = netsfs_mknod(dir, dentry, mode | S_IFDIR, 0);
 
     if (!retval) {
         inc_nlink(dir);
-        printk("%s:%s:%d - End. inode->i_ino == %lu, dentry->d_iname == %s\n",
-                THIS_MODULE->name,
-                __FUNCTION__,
-                __LINE__,
-                dir->i_ino,
-                dentry->d_iname);
+        //printk("%s:%s:%d - End. inode->i_ino == %lu, dentry->d_iname == %s\n",
+        //        THIS_MODULE->name,
+        //        __FUNCTION__,
+        //        __LINE__,
+        //        dir->i_ino,
+        //        dentry->d_iname);
     }
 
     return retval;
@@ -283,10 +277,10 @@ extern int netsfs_create_by_name(const char *name, mode_t mode, struct dentry *p
 {
     int error = 0;
 
-    printk("%s:%s:%d - Start.\n",
-            THIS_MODULE->name,
-            __FUNCTION__,
-            __LINE__);
+    //printk("%s:%s:%d - Start.\n",
+    //        THIS_MODULE->name,
+    //        __FUNCTION__,
+    //        __LINE__);
 
     /* If the parent is not specified, we create it in the root.
      * We need the root dentry to do this, which is in the super
@@ -303,10 +297,10 @@ extern int netsfs_create_by_name(const char *name, mode_t mode, struct dentry *p
     if (!IS_ERR(*dentry)) {
         switch (mode & S_IFMT) {
             case S_IFDIR:
-                printk("%s:%s:%d - Is a dir, creating...\n",
-                        THIS_MODULE->name,
-                        __FUNCTION__,
-                        __LINE__);
+                //printk("%s:%s:%d - Is a dir, creating...\n",
+                //        THIS_MODULE->name,
+                //        __FUNCTION__,
+                //        __LINE__);
                 error = netsfs_mkdir(parent->d_inode, *dentry, mode);
                 break;
             case S_IFLNK:
@@ -330,10 +324,10 @@ extern int netsfs_create_by_name(const char *name, mode_t mode, struct dentry *p
         error = PTR_ERR(*dentry);
 
     mutex_unlock(&parent->d_inode->i_mutex);
-    printk("%s:%s:%d - End.\n",
-            THIS_MODULE->name,
-            __FUNCTION__,
-            __LINE__);
+    //printk("%s:%s:%d - End.\n",
+    //        THIS_MODULE->name,
+    //        __FUNCTION__,
+    //        __LINE__);
 
     return error;
 }
@@ -391,7 +385,7 @@ struct dentry *netsfs_mount(struct file_system_type *fs_type,
 {
     struct dentry *root;
 
-    printk("%s:%s:%d - Start.\n", THIS_MODULE->name, __FUNCTION__, __LINE__);
+    // printk("%s:%s:%d - Start.\n", THIS_MODULE->name, __FUNCTION__, __LINE__);
     root = mount_nodev(fs_type, flags, data, netsfs_fill_super);
     if (IS_ERR(root))
         goto out;
@@ -404,13 +398,13 @@ struct dentry *netsfs_mount(struct file_system_type *fs_type,
     netsfs_pseudo_proto.func = netsfs_packet_handler;
     dev_add_pack(&netsfs_pseudo_proto);
 
-    printk("%s:%s:%d - End.\n", THIS_MODULE->name, __FUNCTION__, __LINE__);
+    // printk("%s:%s:%d - End.\n", THIS_MODULE->name, __FUNCTION__, __LINE__);
 
-    printk("%s:%s:%d - netsfs_root->d_inode->i_ino == %lu\n",
-            THIS_MODULE->name,
-            __FUNCTION__,
-            __LINE__,
-            netsfs_root->d_inode->i_ino);
+    // printk("%s:%s:%d - netsfs_root->d_inode->i_ino == %lu\n",
+    //         THIS_MODULE->name,
+    //         __FUNCTION__,
+    //         __LINE__,
+    //        netsfs_root->d_inode->i_ino);
 
 out:
     return root;

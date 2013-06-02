@@ -14,6 +14,7 @@
 #include <linux/module.h>
 #include <linux/ip.h>
 #include <linux/ipv6.h>
+#include <net/ipv6.h>
 #include <linux/workqueue.h>
 #include <linux/export.h>
 
@@ -37,7 +38,7 @@ static void netsfs_go(struct work_struct *work)
 
     netsfsinfo = container_of(work, struct netsfs_skb_info, my_work);
 
-    printk("Worker: %s %s %d\n", netsfsinfo->mac_name, netsfsinfo->network_name, netsfsinfo->len);
+    //printk("Worker: %s %s %d\n", netsfsinfo->mac_name, netsfsinfo->network_name, netsfsinfo->len);
 
     /* Create mac dir */
     netsfs_create_by_name(netsfsinfo->mac_name, S_IFDIR, NULL, &mac_dentry, NULL, NETSFS_DIR);
@@ -72,7 +73,7 @@ int netsfs_packet_handler(struct sk_buff *skb, struct net_device *dev, struct pa
 {
     int len, err;
     struct netsfs_skb_info *netsfsinfo;
-    char mac_name[8], network_name[6];
+    char mac_name[8], network_name[10];
 
     len = skb->len;
 
@@ -82,18 +83,85 @@ int netsfs_packet_handler(struct sk_buff *skb, struct net_device *dev, struct pa
         goto free;
     }
 
+    printk("** BEGIN: 0x%.2x, 0x%.2x\n", ntohs(eth_hdr(skb)->h_proto), ip_hdr(skb)->protocol);
+
     /* check for ip header, in this case never will get nothing different of ETH_P_IP, but this switch
      * is here just in case you change netsfs_pseudo_proto.type
      */
     switch (ntohs(eth_hdr(skb)->h_proto))
     {
         case ETH_P_IP:
-            sprintf(mac_name, "0x%.4x", ntohs(eth_hdr(skb)->h_proto));
-            sprintf(network_name, "0x%.2x", ip_hdr(skb)->protocol);
+            //sprintf(mac_name, "0x%.4x", ntohs(eth_hdr(skb)->h_proto));
+            sprintf(mac_name, "ipv4");
+            // TODO: FIX this switch
+            switch (ip_hdr(skb)->protocol)
+            {
+                case IPPROTO_IP:
+                    sprintf(network_name, "ip");
+                    break;
+                case IPPROTO_ICMP:
+                    sprintf(network_name, "icmp");
+                    break;
+                case IPPROTO_IGMP:
+                    sprintf(network_name, "igmp");
+                    break;
+                case IPPROTO_IPIP:
+                    sprintf(network_name, "ipip");
+                    break;
+                case IPPROTO_TCP:
+                    sprintf(network_name, "tcp");
+                    break;
+                case IPPROTO_EGP:
+                    sprintf(network_name, "egp");
+                    break;
+                case IPPROTO_PUP:
+                    sprintf(network_name, "pup");
+                    break;
+                case IPPROTO_UDP:
+                    sprintf(network_name, "udp");
+                    break;
+                case IPPROTO_IPV6:
+                    sprintf(network_name, "ipv6");
+                    break;
+                case IPPROTO_SCTP:
+                    sprintf(network_name, "sctp");
+                    break;
+                case IPPROTO_RAW:
+                    sprintf(network_name, "raw");
+                    break;
+                default:
+                    sprintf(network_name, "0x%.2x", ip_hdr(skb)->protocol);
+                    break;
+            }
             break;
         case ETH_P_IPV6:
-            sprintf(mac_name, "0x%.4x", ntohs(eth_hdr(skb)->h_proto));
-            sprintf(network_name, "0x%.2x", ipv6_hdr(skb)->nexthdr);
+            //sprintf(mac_name, "0x%.4x", ntohs(eth_hdr(skb)->h_proto));
+            sprintf(mac_name, "ipv6");
+            switch (ipv6_hdr(skb)->nexthdr)
+            {
+                case NEXTHDR_HOP:
+                    sprintf(network_name, "hop");
+                    break;
+                case NEXTHDR_TCP:
+                    sprintf(network_name, "tcp");
+                    break;
+                case NEXTHDR_UDP:
+                    sprintf(network_name, "udp");
+                    break;
+                case NEXTHDR_IPV6:
+                    sprintf(network_name, "ipv6");
+                    break;
+                case NEXTHDR_ICMP:
+                    sprintf(network_name, "icmp");
+                    break;
+                default:
+                    sprintf(network_name, "0x%.2x", ipv6_hdr(skb)->nexthdr);
+                    break;
+            }
+            break;
+        case ETH_P_ARP:
+            sprintf(mac_name, "arp");
+            sprintf(network_name, "0x%.2x", ip_hdr(skb)->protocol);
             break;
         default:
             printk(KERN_INFO "%s: Unknow packet (0x%.4X, 0x%.4X)\n",
@@ -120,5 +188,6 @@ int netsfs_packet_handler(struct sk_buff *skb, struct net_device *dev, struct pa
 
 free:
     dev_kfree_skb(skb);
+    printk("** END\n");
     return err;
 }
