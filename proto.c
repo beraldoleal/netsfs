@@ -13,6 +13,7 @@
 #include <linux/if_ether.h>
 #include <linux/module.h>
 #include <linux/ip.h>
+#include <linux/tcp.h>
 #include <linux/ipv6.h>
 #include <net/ipv6.h>
 #include <linux/workqueue.h>
@@ -125,6 +126,46 @@ const char *get_ip_protocol(struct sk_buff *skb)
     }
 }
 
+const char *get_application_protocol(struct sk_buff *skb)
+{
+    struct tcphdr *tcp_hdr;
+    struct iphdr *ip_hdr;
+
+    if (!skb)
+        return NULL;
+
+    /* Get ip header
+     */
+    ip_hdr = (struct iphdr *)skb_network_header(skb);
+    if (!ip_hdr)
+        return NULL;
+
+    /* Get tcp header and checks if is TCP or UDP
+     */
+    tcp_hdr = (struct tcphdr *)((__u32 *)ip_hdr + ip_hdr->ihl);
+    if ((!ip_hdr->protocol==IPPROTO_TCP) &&
+        (!ip_hdr->protocol==IPPROTO_UDP))
+        return NULL;
+
+    /* TODO: Remove the hardcoded ports */
+    if ((ntohs(tcp_hdr->dest) == 22) ||
+        (ntohs(tcp_hdr->source) == 22))
+        return "ssh";
+    else if ((ntohs(tcp_hdr->dest) == 80) ||
+        (ntohs(tcp_hdr->source) == 80))
+        return "http";
+    else if ((ntohs(tcp_hdr->dest) == 443) ||
+        (ntohs(tcp_hdr->source) == 443))
+        return "https";
+    else if ((ntohs(tcp_hdr->dest) == 3306) ||
+        (ntohs(tcp_hdr->source) == 3306))
+        return "mysql";
+    else {
+        printk("netsfs: Unknow app protocol: %d, %d\n", ntohs(tcp_hdr->source), ntohs(tcp_hdr->dest));
+        return "unknow";
+    }
+}
+
 /* Return skb len.
  */
 unsigned int get_skb_len(struct sk_buff *skb)
@@ -138,10 +179,11 @@ unsigned int get_skb_len(struct sk_buff *skb)
 static void netsfs_top(struct work_struct *work)
 {
     struct netsfs_skb_info *netsfsinfo;
-    struct dentry *network_dentry, *transport_dentry;
+    struct dentry *network_dentry, *transport_dentry, *app_dentry;
     unsigned int len;
 
     netsfsinfo = container_of(work, struct netsfs_skb_info, my_work);
+    len = get_skb_len(netsfsinfo->skb);
 
     /* Create top level files */
     netsfs_create_files(NULL);
@@ -152,19 +194,29 @@ static void netsfs_top(struct work_struct *work)
     if (network_dentry) {
         /* Create L3 files */
         netsfs_create_files(network_dentry);
+
+        netsfs_inc_inode_size(network_dentry->d_parent->d_inode, len);
+        netsfs_inc_inode_size(network_dentry->d_inode, len);
+
         /* Create L4 dir */
         netsfs_create_dir(get_ip_protocol(netsfsinfo->skb), network_dentry, &transport_dentry);
         if (transport_dentry) {
             /* Create L4 files */
             netsfs_create_files(transport_dentry);
+
+            netsfs_inc_inode_size(transport_dentry->d_inode, len);
+
+            /* TODO: Currently, L5 only for TCP. */
+            if (ip_hdr(netsfsinfo->skb)->protocol == IPPROTO_TCP) {
+                netsfs_create_dir(get_application_protocol(netsfsinfo->skb), transport_dentry, &app_dentry);
+                if (app_dentry) {
+                    netsfs_create_files(app_dentry);
+                    netsfs_inc_inode_size(app_dentry->d_inode, len);
+                }
+            }
         }
     }
 
-    len = get_skb_len(netsfsinfo->skb);
-
-    netsfs_inc_inode_size(network_dentry->d_parent->d_inode, len);
-    netsfs_inc_inode_size(network_dentry->d_inode, len);
-    netsfs_inc_inode_size(transport_dentry->d_inode, len);
 
     /* Free stuff */
     dev_kfree_skb(netsfsinfo->skb);

@@ -356,6 +356,9 @@ extern void netsfs_create_dir(const char *proto_name, struct dentry *parent, str
     if (!parent)
         parent = netsfs_root;
 
+    if (!proto_name)
+        return;
+
     netsfs_create_by_name(proto_name, S_IFDIR, parent, dentry, NULL, NETSFS_DIR);
 }
 
