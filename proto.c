@@ -29,7 +29,8 @@ struct netsfs_skb_info {
 
 /* Return the Ethernet Packet "Type" field in string.
  */
-const char *get_ether_type(struct sk_buff *skb) {
+const char *get_ether_type(struct sk_buff *skb)
+{
     switch (ntohs(eth_hdr(skb)->h_proto))
     {
         case ETH_P_IP:
@@ -45,7 +46,8 @@ const char *get_ether_type(struct sk_buff *skb) {
 }
 
 
-const char *get_ipv4_protocol(struct sk_buff *skb) {
+const char *get_ipv4_protocol(struct sk_buff *skb)
+{
     switch (ip_hdr(skb)->protocol)
     {
         case IPPROTO_IP:
@@ -81,7 +83,8 @@ const char *get_ipv4_protocol(struct sk_buff *skb) {
     }
 }
 
-const char *get_ipv6_protocol(struct sk_buff *skb) {
+const char *get_ipv6_protocol(struct sk_buff *skb)
+{
     switch (ipv6_hdr(skb)->nexthdr)
     {
         case NEXTHDR_HOP:
@@ -107,7 +110,8 @@ const char *get_ipv6_protocol(struct sk_buff *skb) {
 
 /* Return the IP "protocol" field in string.
  */
-const char *get_ip_protocol(struct sk_buff *skb) {
+const char *get_ip_protocol(struct sk_buff *skb)
+{
 
     switch (ntohs(eth_hdr(skb)->h_proto))
     {
@@ -123,34 +127,36 @@ const char *get_ip_protocol(struct sk_buff *skb) {
 
 /* Return skb len.
  */
-unsigned int get_skb_len(struct sk_buff *skb) {
+unsigned int get_skb_len(struct sk_buff *skb)
+{
     return skb->len;
 }
 
 /* Top Halve.
  * Work scheduled earlier is done now, here.
  */
-// TODO: REFACT
 static void netsfs_go(struct work_struct *work)
 {
     struct netsfs_skb_info *netsfsinfo;
-    struct dentry *mac_dentry, *network_dentry, *stats_dentry;
+    struct dentry *mac_dentry, *network_dentry;
     unsigned int len;
 
     netsfsinfo = container_of(work, struct netsfs_skb_info, my_work);
 
+    /* Create top level files */
+    netsfs_create_files(NULL);
 
-    netsfs_create_by_name(get_ether_type(netsfsinfo->skb), S_IFDIR, NULL, &mac_dentry, NULL, NETSFS_DIR);
-    netsfs_create_by_name("stats", S_IFREG, NULL, &stats_dentry, NULL, NETSFS_STATS);
-    netsfs_create_by_name("stream", S_IFREG, NULL, &stats_dentry, NULL, NETSFS_STREAM);
+    /* Create L3 dir */
+    netsfs_create_dir(get_ether_type(netsfsinfo->skb), NULL, &mac_dentry);
 
     if (mac_dentry) {
-        netsfs_create_by_name("stats", S_IFREG, mac_dentry, &stats_dentry, NULL, NETSFS_STATS);
-        netsfs_create_by_name("stream", S_IFREG, mac_dentry, &stats_dentry, NULL, NETSFS_STREAM);
-        netsfs_create_by_name(get_ip_protocol(netsfsinfo->skb), S_IFDIR, mac_dentry, &network_dentry, NULL, NETSFS_DIR);
+        /* Create L3 files */
+        netsfs_create_files(mac_dentry);
+        /* Create L4 dir */
+        netsfs_create_dir(get_ip_protocol(netsfsinfo->skb), mac_dentry, &network_dentry);
         if (network_dentry) {
-            netsfs_create_by_name("stats", S_IFREG, network_dentry, &stats_dentry, NULL, NETSFS_STATS);
-            netsfs_create_by_name("stream", S_IFREG, network_dentry, &stats_dentry, NULL, NETSFS_STREAM);
+            /* Create L4 files */
+            netsfs_create_files(network_dentry);
         }
     }
 

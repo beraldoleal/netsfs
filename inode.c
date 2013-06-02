@@ -332,6 +332,33 @@ extern int netsfs_create_by_name(const char *name, mode_t mode, struct dentry *p
     return error;
 }
 
+/* High-Level function. Use this one.
+ * Create stats and stream files in parent dir.
+ * If parent is NULL, create on top netsfs_root.
+ */
+extern void netsfs_create_files(struct dentry *parent)
+{
+    struct dentry *stats;
+
+    if (!parent)
+        parent = netsfs_root;
+
+    netsfs_create_by_name("stats", S_IFREG, parent, &stats, NULL, NETSFS_STATS);
+    netsfs_create_by_name("stream", S_IFREG, parent, &stats, NULL, NETSFS_STREAM);
+}
+
+/* High-Level function. Use this one.
+ * Create protocol directory in parent dir.
+ * If parent is NULL, create on top netsfs_root.
+ */
+extern void netsfs_create_dir(const char *proto_name, struct dentry *parent, struct dentry **dentry)
+{
+    if (!parent)
+        parent = netsfs_root;
+
+    netsfs_create_by_name(proto_name, S_IFDIR, parent, dentry, NULL, NETSFS_DIR);
+}
+
 int netsfs_fill_super(struct super_block *sb, void *data, int silent)
 {
     struct netsfs_fs_info *fsi;

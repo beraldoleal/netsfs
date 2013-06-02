@@ -39,7 +39,8 @@ extern int netsfs_symlink(struct inode * dir, struct dentry *dentry, const char 
 extern int netsfs_create_by_name(const char *name, mode_t mode, struct dentry *parent,
                                  struct dentry **dentry, void *data, netsfs_file_type_t type);
 
-
+extern void netsfs_create_files(struct dentry *parent);
+extern void netsfs_create_dir(const char *proto_name, struct dentry *parent, struct dentry **dentry);
 extern void netsfs_inc_inode_size(struct inode *inode, loff_t inc);
 
 struct netsfs_mount_opts {
