@@ -33,6 +33,7 @@ MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Beraldo Leal");
 
 #define STREAM_BUF_LEN 4096
+static char stream_buf[STREAM_BUF_LEN];
 
 static struct packet_type netsfs_pseudo_proto;
 static struct dentry *netsfs_root;
@@ -43,17 +44,15 @@ static ssize_t netsfs_file_read(struct file *file, char __user *buf,
 {
     struct netsfs_file_private *f_private;
     struct netsfs_dir_private *d_private;
-    char *stream_buf;
     struct sk_buff *skb;
 
-    int size;
+    size_t ret = 0, rv = 0;
 
-    size_t len = STREAM_BUF_LEN, ret = 0, rv = 0;
+    if (*ppos > 0)
+        return 0;
 
     f_private = file->f_dentry->d_inode->i_private;
     d_private = file->f_dentry->d_parent->d_inode->i_private;
-
-    stream_buf = kzalloc(STREAM_BUF_LEN, GFP_KERNEL);
 
     if (f_private->type == NETSFS_STATS) {
         /* stats read */
@@ -61,17 +60,18 @@ static ssize_t netsfs_file_read(struct file *file, char __user *buf,
     } else if (f_private->type == NETSFS_STREAM) {
         /* stream read */
         skb = cq_get(&d_private->queue_skbuff);
-        ret = sprintf(stream_buf, "%llu %s %d %d\n",
-                      skb->tstamp.tv64,
-                      skb->dev->name,
-                      skb->len,
-                      skb->protocol);
+        if (skb)
+            ret = sprintf(stream_buf, "%llu %s %d %d\n",
+                          skb->tstamp.tv64,
+                          skb->dev->name,
+                          skb->len,
+                          skb->protocol);
+
     }
     printk("count: %lld ppos: %lld ret: %d\n",count, *ppos, ret);
 
     if (ret > 0)
         rv = simple_read_from_buffer(buf, count, ppos, stream_buf, ret);
-    kfree(stream_buf);
     return rv;
 }
 
