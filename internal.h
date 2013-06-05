@@ -27,6 +27,22 @@ typedef enum {
     NETSFS_STREAM = 2
 } netsfs_file_type_t;
 
+struct netsfs_file_private {
+    netsfs_file_type_t type;
+};
+
+struct netsfs_dir_private {
+    struct kfifo queue_skbuff;
+    u64 count;      // how many frames/packets
+    u64 errors;     // how many errors
+    loff_t bytes;   // total bytes
+};
+
+/* fifo size in elements (struct sk_buff) */
+#define FIFO_SIZE 32
+
+/* Declare and INIT kfifo */
+static DEFINE_KFIFO(test, struct sk_buff, FIFO_SIZE);
 
 struct inode *netsfs_get_inode(struct super_block *sb,
         const struct inode *dir, int mode, dev_t dev);
@@ -57,5 +73,39 @@ struct netsfs_fs_info {
     struct netsfs_mount_opts mount_opts;
 };
 
+
+
+/* fifo of pointers */
+static inline int cq_new(struct kfifo *fifo, int size)
+{
+    return kfifo_alloc(fifo, size * sizeof(void *), GFP_KERNEL);
+}
+
+static inline void cq_delete(struct kfifo *kfifo)
+{
+    kfifo_free(kfifo);
+}
+
+static inline unsigned int cq_howmany(struct kfifo *kfifo)
+{
+    return kfifo_len(kfifo) / sizeof(void *);
+}
+
+static inline int cq_put(struct kfifo *kfifo, void *p)
+{
+    return kfifo_in(kfifo, (void *)&p, sizeof(p));
+}
+
+static inline void *cq_get(struct kfifo *kfifo)
+{
+    unsigned int sz;
+    void *p;
+
+    sz = kfifo_out(kfifo, (void *)&p, sizeof(p));
+    if (sz != sizeof(p))
+        return NULL;
+
+    return p;
+}
 
 #endif

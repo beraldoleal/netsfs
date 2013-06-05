@@ -23,6 +23,7 @@
 #include <linux/magic.h>
 #include <linux/slab.h>
 #include <asm/uaccess.h>
+#include <linux/kfifo.h>
 #include <linux/netdevice.h>
 
 #include "internal.h"
@@ -31,43 +32,50 @@
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Beraldo Leal");
 
+#define STREAM_BUF_LEN 4096
+
 static struct packet_type netsfs_pseudo_proto;
 static struct dentry *netsfs_root;
 static const struct inode_operations netsfs_file_inode_operations;
 
-struct netsfs_file_private {
-    netsfs_file_type_t type;
-};
-
-struct netsfs_dir_private {
-    u64 count;      // how many frames/packets
-    u64 errors;     // how many errors
-    loff_t bytes;   // total bytes
-};
-
 static ssize_t netsfs_file_read(struct file *file, char __user *buf,
                                 size_t count, loff_t *ppos)
 {
-    ssize_t length;
     struct netsfs_file_private *f_private;
     struct netsfs_dir_private *d_private;
-    char line[100];
+    char *stream_buf;
+    struct sk_buff *skb;
 
+    int size;
 
-    length = -ENOMEM;
+    size_t len = STREAM_BUF_LEN, ret = 0, rv = 0;
+
     f_private = file->f_dentry->d_inode->i_private;
     d_private = file->f_dentry->d_parent->d_inode->i_private;
 
-    if (f_private->type == NETSFS_STATS) {
-        length = sprintf(line, "bytes: %lld\ncount: %lld\n", d_private->bytes, d_private->count);
-        if (length >0)
-            length = simple_read_from_buffer(buf, count, ppos, line, length);
-        return length;
-    }
+    stream_buf = kzalloc(STREAM_BUF_LEN, GFP_KERNEL);
 
-    return 0;
+    if (f_private->type == NETSFS_STATS) {
+        /* stats read */
+        ret = sprintf(stream_buf, "bytes: %lld\ncount: %lld\n", d_private->bytes, d_private->count);
+    } else if (f_private->type == NETSFS_STREAM) {
+        /* stream read */
+        skb = cq_get(&d_private->queue_skbuff);
+        ret = sprintf(stream_buf, "%llu %s %d %d\n",
+                      skb->tstamp.tv64,
+                      skb->dev->name,
+                      skb->len,
+                      skb->protocol);
+    }
+    printk("count: %lld ppos: %lld ret: %d\n",count, *ppos, ret);
+
+    if (ret > 0)
+        rv = simple_read_from_buffer(buf, count, ppos, stream_buf, ret);
+    kfree(stream_buf);
+    return rv;
 }
 
+/* Comment options here to disable operations to user */
 const struct inode_operations netsfs_dir_inode_operations = {
     .create         = netsfs_create,
     .lookup         = simple_lookup,
@@ -101,7 +109,7 @@ const match_table_t tokens = {
 extern void netsfs_inc_inode_size(struct inode *inode, loff_t inc)
 {
     loff_t oldsize, newsize;
-    struct netsfs_dir_private *private;
+    struct netsfs_dir_private *d_private;
 
     //printk(KERN_INFO "%s: Updating inode %lu size to %lld\n",
     //        THIS_MODULE->name,
@@ -114,10 +122,11 @@ extern void netsfs_inc_inode_size(struct inode *inode, loff_t inc)
     i_size_write(inode, newsize);
 
     if (inode->i_private == NULL) {
-        private = kmalloc(sizeof(struct netsfs_dir_private), GFP_KERNEL);
-        private->bytes = newsize;
-        private->count = 1;
-        inode->i_private = private; // LOCK HERE
+        d_private = kmalloc(sizeof(struct netsfs_dir_private), GFP_KERNEL);
+        cq_new(&d_private->queue_skbuff, FIFO_SIZE);
+        d_private->bytes = newsize;
+        d_private->count = 1;
+        inode->i_private = d_private; // LOCK HERE
     }else{
         ((struct netsfs_dir_private *) inode->i_private)->bytes = newsize;
         ((struct netsfs_dir_private *) inode->i_private)->count += 1;
@@ -202,6 +211,7 @@ extern int netsfs_mkdir(struct inode * dir, struct dentry * dentry, int mode)
 
     if (!retval) {
         inc_nlink(dir);
+        // printk("Alloc fifo for %s\n", dentry->d_iname);
         //printk("%s:%s:%d - End. inode->i_ino == %lu, dentry->d_iname == %s\n",
         //        THIS_MODULE->name,
         //        __FUNCTION__,
@@ -247,7 +257,6 @@ extern int netsfs_parse_options(char *data, struct netsfs_mount_opts *opts)
                  */
         }
     }
-
     return 0;
 }
 

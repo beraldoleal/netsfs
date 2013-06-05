@@ -18,6 +18,7 @@
 #include <net/ipv6.h>
 #include <linux/workqueue.h>
 #include <linux/export.h>
+#include <linux/kfifo.h>
 
 #include "proto.h"
 #include "internal.h"
@@ -182,6 +183,9 @@ static void netsfs_top(struct work_struct *work)
     struct dentry *network_dentry, *transport_dentry, *app_dentry;
     unsigned int len;
 
+    struct sk_buff *buff;
+    struct netsfs_dir_private *d_private;
+
     netsfsinfo = container_of(work, struct netsfs_skb_info, my_work);
     len = get_skb_len(netsfsinfo->skb);
 
@@ -197,6 +201,11 @@ static void netsfs_top(struct work_struct *work)
 
         netsfs_inc_inode_size(network_dentry->d_parent->d_inode, len);
         netsfs_inc_inode_size(network_dentry->d_inode, len);
+
+	/* Put skbuff in kfifo */
+        buff = netsfsinfo->skb;
+        d_private = network_dentry->d_inode->i_private;
+        cq_put(&d_private->queue_skbuff, buff);
 
         /* Create L4 dir */
         netsfs_create_dir(get_ip_protocol(netsfsinfo->skb), network_dentry, &transport_dentry);
@@ -219,7 +228,7 @@ static void netsfs_top(struct work_struct *work)
 
 
     /* Free stuff */
-    dev_kfree_skb(netsfsinfo->skb);
+ //   dev_kfree_skb(netsfsinfo->skb);
     kfree( (void *) work);
 }
 
