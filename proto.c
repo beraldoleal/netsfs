@@ -164,19 +164,17 @@ char *get_ipv6_protocol(struct sk_buff *skb)
  */
 char *get_ip_protocol(struct sk_buff *skb)
 {
-
-    struct net_device *dev = skb->dev;
     struct ethhdr *eth;
 
-        eth = eth_hdr(skb);
-        switch (ntohs(eth->h_proto)) {
-        case ETH_P_IP:
-            return get_ipv4_protocol(skb);
-        case ETH_P_IPV6:
-            return get_ipv6_protocol(skb);
-        default:
-            break;
-        }
+    eth = eth_hdr(skb);
+    switch (ntohs(eth->h_proto)) {
+    case ETH_P_IP:
+        return get_ipv4_protocol(skb);
+    case ETH_P_IPV6:
+        return get_ipv6_protocol(skb);
+    default:
+        break;
+    }
     return "unknow1";
 }
 
