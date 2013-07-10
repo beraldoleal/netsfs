@@ -19,6 +19,7 @@
 #include <linux/workqueue.h>
 #include <linux/export.h>
 #include <linux/kfifo.h>
+#include <linux/if_arp.h>
 
 #include "proto.h"
 #include "internal.h"
@@ -28,27 +29,76 @@ struct netsfs_skb_info {
     struct sk_buff *skb;
 };
 
+enum {
+    SRC_ADDRESS = 0,
+    DST_ADDRESS = 1,
+};
 
-/* Return the Ethernet Packet "Type" field in string.
- */
-const char *get_ether_type(struct sk_buff *skb)
+int get_ipv4_address(char *ip, struct sk_buff *skb, __u8 type)
 {
-    switch (ntohs(eth_hdr(skb)->h_proto))
+    struct iphdr *iphdr;
+    iphdr = ip_hdr(skb);
+
+    switch (iphdr->protocol)
     {
-        case ETH_P_IP:
-            return "ipv4";
-            break;
-        case ETH_P_IPV6:
-            return "ipv6";
+        case IPPROTO_IP:
+        case IPPROTO_ICMP:
+        case IPPROTO_TCP:
+        case IPPROTO_UDP:
+            if (type == SRC_ADDRESS)
+                sprintf(ip, "%pI4", &iphdr->saddr);
+            else
+                sprintf(ip, "%pI4", &iphdr->daddr);
+            return 0;
             break;
         default:
-            return "unknow";
+            return -EINVAL;
             break;
     }
 }
 
+int get_ipv6_address(char *ip, struct sk_buff *skb, __u8 type)
+{
+    struct ipv6hdr *iphdr;
+    iphdr = ipv6_hdr(skb);
 
-const char *get_ipv4_protocol(struct sk_buff *skb)
+    switch (iphdr->nexthdr)
+    {
+        case NEXTHDR_TCP:
+        case NEXTHDR_UDP:
+        case NEXTHDR_IPV6:
+        case NEXTHDR_ICMP:
+            if (type == SRC_ADDRESS)
+                sprintf(ip, "%pI6c", &iphdr->saddr);
+            else
+                sprintf(ip, "%pI6c", &iphdr->daddr);
+            return 0;
+            return -EINVAL;
+            break;
+        default:
+            return -EINVAL;
+            break;
+    }
+}
+
+int get_ip_address(char *ip, struct sk_buff *skb, __u8 type)
+{
+
+    switch (ntohs(eth_hdr(skb)->h_proto)) {
+        case ETH_P_IP:
+            get_ipv4_address(ip, skb, type);
+            return 0;
+            break;
+            case ETH_P_IPV6:
+            get_ipv6_address(ip, skb, type);
+            return 0;
+            break;
+        default:
+            return -EINVAL;
+    }
+}
+
+char *get_ipv4_protocol(struct sk_buff *skb)
 {
     switch (ip_hdr(skb)->protocol)
     {
@@ -85,7 +135,7 @@ const char *get_ipv4_protocol(struct sk_buff *skb)
     }
 }
 
-const char *get_ipv6_protocol(struct sk_buff *skb)
+char *get_ipv6_protocol(struct sk_buff *skb)
 {
     switch (ipv6_hdr(skb)->nexthdr)
     {
@@ -112,20 +162,129 @@ const char *get_ipv6_protocol(struct sk_buff *skb)
 
 /* Return the IP "protocol" field in string.
  */
-const char *get_ip_protocol(struct sk_buff *skb)
+char *get_ip_protocol(struct sk_buff *skb)
 {
 
-    switch (ntohs(eth_hdr(skb)->h_proto))
-    {
+    struct net_device *dev = skb->dev;
+    struct ethhdr *eth;
+
+        eth = eth_hdr(skb);
+        switch (ntohs(eth->h_proto)) {
         case ETH_P_IP:
             return get_ipv4_protocol(skb);
         case ETH_P_IPV6:
             return get_ipv6_protocol(skb);
         default:
-            return NULL;
+            break;
+        }
+    return "unknow1";
+}
+
+int get_network_string(char *str, struct sk_buff *skb)
+{
+
+    struct iphdr *iphdr;
+    char *src, *dst;
+    iphdr = ip_hdr(skb);
+
+    src = kmalloc(sizeof(char)*15, GFP_KERNEL);
+    dst = kmalloc(sizeof(char)*15, GFP_KERNEL);
+
+    get_ip_address(src, skb, SRC_ADDRESS);
+    get_ip_address(dst, skb, DST_ADDRESS);
+
+    sprintf(str, "[NETWORK] version: %d, tos: %02x, id: %04x, protocol: %s, %s -> %s",
+            iphdr->version,
+            iphdr->tos,
+            iphdr->id,
+            get_ip_protocol(skb),
+            src, dst);
+
+    kfree(src);
+    kfree(dst);
+    return 0;
+}
+
+
+int get_mac_string(char *str, struct sk_buff *skb)
+{
+    sprintf(str, "[MAC] ts: %llu, dev: %s, len: %d",
+            skb->tstamp.tv64,
+            skb->dev->name,
+            skb->len);
+//            get_ether_type(skb));
+    return 0;
+}
+
+
+int get_src_mac(char *source, struct sk_buff *skb)
+{
+    struct ethhdr *eth;
+
+    switch (skb->dev->type) {
+        case ARPHRD_ETHER:
+        case ARPHRD_LOOPBACK:
+            eth = eth_hdr(skb);
+            sprintf(source, "%02x:%02x:%02x:%02x:%02x:%02x",
+                    eth->h_source[0],
+                    eth->h_source[1],
+                    eth->h_source[2],
+                    eth->h_source[3],
+                    eth->h_source[4],
+                    eth->h_source[5]);
+            return 0;
+            break;
+        default:
+            printk(KERN_WARNING "device type not supported: %d\n",
+                   skb->dev->type);
+    }
+    return -EINVAL;
+}
+
+int get_dst_mac(char *dst, struct sk_buff *skb)
+{
+    struct ethhdr *eth;
+
+    switch (skb->dev->type) {
+        case ARPHRD_ETHER:
+        case ARPHRD_LOOPBACK:
+            eth = eth_hdr(skb);
+            sprintf(dst, "%02x:%02x:%02x:%02x:%02x:%02x",
+                    eth->h_dest[0],
+                    eth->h_dest[1],
+                    eth->h_dest[2],
+                    eth->h_dest[3],
+                    eth->h_dest[4],
+                    eth->h_dest[5]);
+            return 0;
+            break;
+        default:
+            printk(KERN_WARNING "device type not supported: %d\n",
+                   skb->dev->type);
+    }
+    return -EINVAL;
+}
+
+
+/* Return the Ethernet Packet "Type" field in string.
+ */
+char *get_ether_type(struct sk_buff *skb)
+{
+    switch (ntohs(eth_hdr(skb)->h_proto))
+    {
+        case ETH_P_IP:
+            return "ipv4";
+            break;
+        case ETH_P_IPV6:
+            return "ipv6";
+            break;
+        default:
+            return "unknow";
             break;
     }
 }
+
+
 
 const char *get_application_protocol(struct sk_buff *skb)
 {
@@ -133,20 +292,20 @@ const char *get_application_protocol(struct sk_buff *skb)
     struct iphdr *ip_hdr;
 
     if (!skb)
-        return NULL;
+        return "unknow";
 
     /* Get ip header
      */
     ip_hdr = (struct iphdr *)skb_network_header(skb);
     if (!ip_hdr)
-        return NULL;
+        return "unknow";
 
     /* Get tcp header and checks if is TCP or UDP
      */
     tcp_hdr = (struct tcphdr *)((__u32 *)ip_hdr + ip_hdr->ihl);
     if ((!ip_hdr->protocol==IPPROTO_TCP) &&
         (!ip_hdr->protocol==IPPROTO_UDP))
-        return NULL;
+        return "unknow";
 
     /* TODO: Remove the hardcoded ports */
     if ((ntohs(tcp_hdr->dest) == 22) ||
@@ -183,6 +342,7 @@ static void netsfs_top(struct work_struct *work)
     struct dentry *network_dentry, *transport_dentry, *app_dentry;
     unsigned int len;
 
+    int ret;
     struct sk_buff *buff;
     struct netsfs_dir_private *d_private;
 
@@ -202,10 +362,12 @@ static void netsfs_top(struct work_struct *work)
         netsfs_inc_inode_size(network_dentry->d_parent->d_inode, len);
         netsfs_inc_inode_size(network_dentry->d_inode, len);
 
-	/* Put skbuff in kfifo */
+	    /* Put skbuff in kfifo */
         buff = netsfsinfo->skb;
         d_private = network_dentry->d_inode->i_private;
-        cq_put(&d_private->queue_skbuff, buff);
+
+        /* Free skb only when fifo is full */
+        ret = cq_put(&d_private->queue_skbuff, buff);
 
         /* Create L4 dir */
         netsfs_create_dir(get_ip_protocol(netsfsinfo->skb), network_dentry, &transport_dentry);
@@ -224,11 +386,12 @@ static void netsfs_top(struct work_struct *work)
                 }
             }
         }
+
+
+        if (ret == 0)
+            dev_kfree_skb(netsfsinfo->skb);
     }
 
-
-    /* Free stuff */
- //   dev_kfree_skb(netsfsinfo->skb);
     kfree( (void *) work);
 }
 

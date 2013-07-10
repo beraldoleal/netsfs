@@ -32,47 +32,129 @@
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Beraldo Leal");
 
-#define STREAM_BUF_LEN 4096
-static char stream_buf[STREAM_BUF_LEN];
+#define STREAM_BUF_LEN 1024
 
 static struct packet_type netsfs_pseudo_proto;
 static struct dentry *netsfs_root;
 static const struct inode_operations netsfs_file_inode_operations;
 
+
+/* User space ask to read the "stats" file. */
+static ssize_t netsfs_read_stats(struct file *file, char __user *buf,
+                                 size_t count, loff_t *ppos)
+{
+    struct netsfs_dir_private *d_private;
+    char stats_buf[STREAM_BUF_LEN];
+    size_t ret = 0;
+
+    if (*ppos != 0)
+        return 0;
+
+    d_private = file->f_dentry->d_parent->d_inode->i_private;
+
+    ret = snprintf(stats_buf, STREAM_BUF_LEN, "bytes: %lld\ncount: %lld\n",
+                  d_private->bytes, d_private->count);
+
+    if (ret > 0)
+        ret = simple_read_from_buffer(buf, count, ppos, stats_buf, ret);
+
+    return ret;
+}
+
+
+/* User space ask to read the "stream" file. */
+static ssize_t netsfs_read_stream(struct file *file, char __user *buf,
+                                  size_t count, loff_t *ppos)
+{
+    struct netsfs_dir_private *d_private;
+    struct sk_buff *skb;
+
+    char stream_buf[STREAM_BUF_LEN];
+    char *mac_string, *network_string;
+    size_t ret = 0;
+
+    if (*ppos != 0)
+        return 0;
+
+    d_private = file->f_dentry->d_parent->d_inode->i_private;
+    skb = cq_get(&d_private->queue_skbuff);
+    if (skb) {
+        mac_string = kmalloc(sizeof(char)*80, GFP_KERNEL);
+        network_string = kmalloc(sizeof(char)*80, GFP_KERNEL);
+
+        if (!mac_string) {
+            printk("AQUI PAU\n");
+            return -ENOMEM;
+        }
+
+        get_mac_string(mac_string, skb);
+        get_network_string(network_string, skb);
+
+        ret = sprintf(stream_buf, "%s\n%s\n", mac_string, network_string);
+
+        if (ret > 0)
+            ret = simple_read_from_buffer(buf, count, ppos, stream_buf, ret);
+
+        dev_kfree_skb(skb);
+        if (mac_string) kfree(mac_string);
+        if (network_string) kfree(network_string);
+//        kfree(dst);
+//        kfree(network);
+    }
+    return ret;
+}
+
+/* User space ask to read a read a file */
 static ssize_t netsfs_file_read(struct file *file, char __user *buf,
                                 size_t count, loff_t *ppos)
 {
     struct netsfs_file_private *f_private;
-    struct netsfs_dir_private *d_private;
-    struct sk_buff *skb;
-
-    size_t ret = 0, rv = 0;
-
-    if (*ppos > 0)
-        return 0;
 
     f_private = file->f_dentry->d_inode->i_private;
-    d_private = file->f_dentry->d_parent->d_inode->i_private;
 
-    if (f_private->type == NETSFS_STATS) {
-        /* stats read */
-        ret = sprintf(stream_buf, "bytes: %lld\ncount: %lld\n", d_private->bytes, d_private->count);
-    } else if (f_private->type == NETSFS_STREAM) {
-        /* stream read */
+    switch(f_private->type) {
+        case NETSFS_STATS:
+            return netsfs_read_stats(file, buf, count, ppos);
+            break;
+        case NETSFS_STREAM:
+            return netsfs_read_stream(file, buf, count, ppos);
+            break;
+        default:
+            return 0;
+            break;
+    }
+
+
+/*
         skb = cq_get(&d_private->queue_skbuff);
-        if (skb)
-            ret = sprintf(stream_buf, "%llu %s %d %d\n",
+        if (skb) {
+
+            ether_type = get_ether_type(skb);
+            ip_protocol = get_ip_protocol(skb);
+
+            switch(iph->protocol){
+                case 1: ps = "ICMP"; break;
+                case 4: ps = "IPv4"; break;
+                case 6: ps = "TCP"; break;
+                case 17: ps = "UDP"; break;
+                default: sprintf(ps, "<%d>", iph->protocol); break;
+            }
+
+            ret = sprintf(stream_buf, "%llu %s %d Ether Type: ??, IP Protocol: ??\n",
                           skb->tstamp.tv64,
                           skb->dev->name,
-                          skb->len,
-                          skb->protocol);
-
+                          skb->len);
+            printk("RET: %d\n", ret);
+        } else
+            return 0;
     }
-    printk("count: %lld ppos: %lld ret: %d\n",count, *ppos, ret);
-
-    if (ret > 0)
-        rv = simple_read_from_buffer(buf, count, ppos, stream_buf, ret);
-    return rv;
+    if (ret > 0) {
+        rv = copy_to_user(buf, stream_buf, ret);
+        (*ppos) += ret;
+        if (skb) kfree(skb);
+    }
+    return ret;
+*/
 }
 
 /* Comment options here to disable operations to user */
@@ -102,8 +184,6 @@ const match_table_t tokens = {
     {Opt_mode, "mode=%o"},
     {Opt_err, NULL}
 };
-
-
 
 
 extern void netsfs_inc_inode_size(struct inode *inode, loff_t inc)
