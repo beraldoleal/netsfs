@@ -84,7 +84,6 @@ static ssize_t netsfs_read_stream(struct file *file, char __user *buf,
     if (kfifo_initialized(&d_private->queue_skbuff)) {
         size = cq_howmany(&d_private->queue_skbuff);
         if (size > 0) {
-            printk("size = %ld\n", size); // 32 , 32
             skb = cq_get(&d_private->queue_skbuff);
             if (skb) {
                 mac_string = kmalloc(sizeof(char)*80, GFP_KERNEL);
@@ -95,13 +94,9 @@ static ssize_t netsfs_read_stream(struct file *file, char __user *buf,
 
                 ret = sprintf(stream_buf, "%s\n%s\n", mac_string, network_string);
 
-                printk("primeiro ret = %ld\n", ret); // 148, 147
                 if (ret > 0) {
-                    printk("ppos antes = %lld\n", *ppos); // 0, 148
                     *ppos = 0;
                     ret = simple_read_from_buffer(buf, count, ppos, stream_buf, ret);
-                    printk("segundo ret = %ld\n", ret); // 148, 0
-                    printk("count = %ld, ppos = %lld\n", count, *ppos); // 148, 148
                 }
 
                 dev_kfree_skb(skb);
