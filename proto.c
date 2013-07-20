@@ -178,6 +178,14 @@ char *get_ip_protocol(struct sk_buff *skb)
     return "unknow1";
 }
 
+int get_transport_string(char *str, struct sk_buff *skb)
+{
+
+    sprintf(str, "[TRANSPORT] ************* ");
+
+    return 0;
+}
+
 int get_network_string(char *str, struct sk_buff *skb)
 {
 
@@ -185,13 +193,13 @@ int get_network_string(char *str, struct sk_buff *skb)
     char *src, *dst;
     iphdr = ip_hdr(skb);
 
-    src = kmalloc(sizeof(char)*15, GFP_KERNEL);
-    dst = kmalloc(sizeof(char)*15, GFP_KERNEL);
+    src = kmalloc(sizeof(char)*35, GFP_KERNEL);
+    dst = kmalloc(sizeof(char)*35, GFP_KERNEL);
 
     get_ip_address(src, skb, SRC_ADDRESS);
     get_ip_address(dst, skb, DST_ADDRESS);
 
-    sprintf(str, "[NETWORK] version: %d, tos: %02x, id: %04x, protocol: %s, %s -> %s",
+    sprintf(str, "[ NETWORK ] version: %d, tos: %02x, id: %04x, protocol: %s, %s -> %s",
             iphdr->version,
             iphdr->tos,
             iphdr->id,
@@ -206,7 +214,7 @@ int get_network_string(char *str, struct sk_buff *skb)
 
 int get_mac_string(char *str, struct sk_buff *skb)
 {
-    sprintf(str, "[MAC] ts: %llu, dev: %s, len: %d",
+    sprintf(str, "[   MAC   ] ts: %llu, dev: %s, len: %d",
             skb->tstamp.tv64,
             skb->dev->name,
             skb->len);
@@ -384,7 +392,6 @@ static void netsfs_top(struct work_struct *work)
                 }
             }
         }
-
 
         if (ret == 0)
             dev_kfree_skb(netsfsinfo->skb);

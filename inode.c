@@ -71,37 +71,48 @@ static ssize_t netsfs_read_stream(struct file *file, char __user *buf,
 
     char stream_buf[STREAM_BUF_LEN];
     char *mac_string, *network_string;
-    size_t ret = 0;
+    size_t ret = 0, size = 0;
 
+
+/*
     if (*ppos != 0)
         return 0;
+*/
 
     d_private = file->f_dentry->d_parent->d_inode->i_private;
-    skb = cq_get(&d_private->queue_skbuff);
-    if (skb) {
-        mac_string = kmalloc(sizeof(char)*80, GFP_KERNEL);
-        network_string = kmalloc(sizeof(char)*80, GFP_KERNEL);
 
-        if (!mac_string) {
-            printk("AQUI PAU\n");
-            return -ENOMEM;
+    if (kfifo_initialized(&d_private->queue_skbuff)) {
+        size = cq_howmany(&d_private->queue_skbuff);
+        if (size > 0) {
+            printk("size = %ld\n", size); // 32 , 32
+            skb = cq_get(&d_private->queue_skbuff);
+            if (skb) {
+                mac_string = kmalloc(sizeof(char)*80, GFP_KERNEL);
+                network_string = kmalloc(sizeof(char)*80, GFP_KERNEL);
+
+                get_mac_string(mac_string, skb);
+                get_network_string(network_string, skb);
+
+                ret = sprintf(stream_buf, "%s\n%s\n", mac_string, network_string);
+
+                printk("primeiro ret = %ld\n", ret); // 148, 147
+                if (ret > 0) {
+                    printk("ppos antes = %lld\n", *ppos); // 0, 148
+                    *ppos = 0;
+                    ret = simple_read_from_buffer(buf, count, ppos, stream_buf, ret);
+                    printk("segundo ret = %ld\n", ret); // 148, 0
+                    printk("count = %ld, ppos = %lld\n", count, *ppos); // 148, 148
+                }
+
+                dev_kfree_skb(skb);
+                if (mac_string) kfree(mac_string);
+                if (network_string) kfree(network_string);
+            }
+            return ret;
         }
-
-        get_mac_string(mac_string, skb);
-        get_network_string(network_string, skb);
-
-        ret = sprintf(stream_buf, "%s\n%s\n", mac_string, network_string);
-
-        if (ret > 0)
-            ret = simple_read_from_buffer(buf, count, ppos, stream_buf, ret);
-
-        dev_kfree_skb(skb);
-        if (mac_string) kfree(mac_string);
-        if (network_string) kfree(network_string);
-//        kfree(dst);
-//        kfree(network);
     }
-    return ret;
+
+    return 0;
 }
 
 /* User space ask to read a read a file */

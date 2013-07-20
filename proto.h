@@ -18,6 +18,7 @@ extern void netsfs_register_pack(void);
 int netsfs_packet_handler(struct sk_buff *skb, struct net_device *dev, struct packet_type *pkt,
                           struct net_device *dev2);
 
+int get_transport_string(char *str, struct sk_buff *skb);
 int get_network_string(char *str, struct sk_buff *skb);
 int get_mac_string(char *str, struct sk_buff *skb);
 #endif
