@@ -12,6 +12,7 @@
 
 #include <linux/if_ether.h>
 #include <linux/module.h>
+#include <linux/icmp.h>
 #include <linux/ip.h>
 #include <linux/tcp.h>
 #include <linux/ipv6.h>
@@ -33,6 +34,24 @@ enum {
     SRC_ADDRESS = 0,
     DST_ADDRESS = 1,
 };
+
+/* Return the Ethernet Packet "Type" field in string.
+ */
+char *get_ether_type(struct sk_buff *skb)
+{
+    switch (ntohs(eth_hdr(skb)->h_proto))
+    {
+        case ETH_P_IP:
+            return "ipv4";
+            break;
+        case ETH_P_IPV6:
+            return "ipv6";
+            break;
+        default:
+            return "unknow";
+            break;
+    }
+}
 
 int get_ipv4_address(char *ip, struct sk_buff *skb, __u8 type)
 {
@@ -178,10 +197,82 @@ char *get_ip_protocol(struct sk_buff *skb)
     return "unknow1";
 }
 
+int get_ipv4_icmp_string(char *str, struct icmphdr *icmph)
+{
+    sprintf(str, "[ TRANSPORT ] type: %u, code: %u", icmph->type, icmph->code);
+    return 0;
+}
+
+int get_ipv4_udp_string(char *str, struct udphdr *udph)
+{
+    sprintf(str, "[ TRANSPORT ] %d -> %d", ntohs(udph->source),
+                                           ntohs(udph->dest));
+    return 0;
+}
+
+int get_ipv4_tcp_string(char *str, struct tcphdr *tcph)
+{
+
+    sprintf(str, "[ TRANSPORT ] %d -> %d", ntohs(tcph->source),
+                                           ntohs(tcph->dest));
+
+    if (tcph->fin == 1) strcat(str, "[FIN]");
+    if (tcph->syn == 1) strcat(str, "[SYN]");
+    if (tcph->rst == 1) strcat(str, "[RST]");
+    if (tcph->psh == 1) strcat(str, "[PSH]");
+    if (tcph->ack == 1) strcat(str, "[ACK]");
+    if (tcph->urg == 1) strcat(str, "[URG]");
+    if (tcph->ece == 1) strcat(str, "[ECE]");
+    if (tcph->cwr == 1) strcat(str, "[CWR]");
+
+    return 0;
+}
+
+int get_ipv4_string(char *str, struct sk_buff *skb)
+{
+    struct tcphdr *tcphdr;
+    struct udphdr *udphdr;
+    struct icmphdr *icmphdr;
+
+    struct iphdr *iph;
+
+    iph = ip_hdr(skb);
+
+    switch (iph->protocol)
+    {
+        case IPPROTO_ICMP:
+            icmphdr = (struct icmphdr *)((__u32 *)iph + iph->ihl);
+            return get_ipv4_icmp_string(str, icmphdr);
+            break;
+        case IPPROTO_TCP:
+            tcphdr = (struct tcphdr *)((__u32 *)iph + iph->ihl);
+            return get_ipv4_tcp_string(str, tcphdr);
+            break;
+        case IPPROTO_UDP:
+            udphdr = (struct udphdr *)((__u32 *)iph + iph->ihl);
+            return get_ipv4_udp_string(str, udphdr);
+            break;
+        default:
+            sprintf(str, "[ TRANPORT ] unknow");
+            break;
+    }
+    return 0;
+}
+
 int get_transport_string(char *str, struct sk_buff *skb)
 {
 
-    sprintf(str, "[TRANSPORT] ************* ");
+    struct ethhdr *eth;
+    eth = eth_hdr(skb);
+
+    switch (ntohs(eth->h_proto)) {
+    case ETH_P_IP:
+        return get_ipv4_string(str, skb);
+    case ETH_P_IPV6:
+    default:
+        sprintf(str, "[ TRANSPORT ] unknow");
+        break;
+    }
 
     return 0;
 }
@@ -192,10 +283,6 @@ int get_network_string(char *str, struct sk_buff *skb)
     struct iphdr *iphdr;
     char *src, *dst;
 
-    sprintf(str, "[NETWORK]");
-    return 0;
-
-
     iphdr = ip_hdr(skb);
 
     src = kmalloc(sizeof(char)*35, GFP_KERNEL);
@@ -204,7 +291,7 @@ int get_network_string(char *str, struct sk_buff *skb)
     get_ip_address(src, skb, SRC_ADDRESS);
     get_ip_address(dst, skb, DST_ADDRESS);
 
-    sprintf(str, "[ NETWORK ] version: %d, tos: %02x, id: %04x, protocol: %s, %s -> %s",
+    sprintf(str, "[  NETWORK  ] version: %d, tos: %02x, id: %04x, protocol: %s, %s -> %s",
             iphdr->version,
             iphdr->tos,
             iphdr->id,
@@ -219,11 +306,11 @@ int get_network_string(char *str, struct sk_buff *skb)
 
 int get_mac_string(char *str, struct sk_buff *skb)
 {
-    sprintf(str, "[   MAC   ] ts: %llu, dev: %s, len: %d",
+    sprintf(str, "[    MAC    ] ts: %llu, dev: %s, len: %d, type: %s",
             skb->tstamp.tv64,
             skb->dev->name,
-            skb->len);
-//            get_ether_type(skb));
+            skb->len,
+            get_ether_type(skb));
     return 0;
 }
 
@@ -277,23 +364,6 @@ int get_dst_mac(char *dst, struct sk_buff *skb)
 }
 
 
-/* Return the Ethernet Packet "Type" field in string.
- */
-char *get_ether_type(struct sk_buff *skb)
-{
-    switch (ntohs(eth_hdr(skb)->h_proto))
-    {
-        case ETH_P_IP:
-            return "ipv4";
-            break;
-        case ETH_P_IPV6:
-            return "ipv6";
-            break;
-        default:
-            return "unknow";
-            break;
-    }
-}
 
 
 

@@ -75,37 +75,37 @@ static ssize_t netsfs_read_stream(struct file *file, char __user *buf,
     struct sk_buff *skb;
 
     char stream_buf[STREAM_BUF_LEN];
-    char *mac_string, *network_string;
-    size_t ret = 0, size = 0;
+    char *mac_string, *network_string, *transport_string;
+    size_t ret = 0;
 
-
-/*
     if (*ppos != 0)
         return 0;
-*/
 
     spin_lock(&file->f_dentry->d_parent->d_inode->i_lock);
     d_private = file->f_dentry->d_parent->d_inode->i_private;
     skb = cq_get(&d_private->queue_skbuff);
-    if (skb) {
-//        mac_string = kmalloc(sizeof(char)*80, GFP_KERNEL);
-//        network_string = kmalloc(sizeof(char)*80, GFP_KERNEL);
-//
-//        get_mac_string(mac_string, skb);
-//        get_network_string(network_string, skb);
-//
-//        ret = sprintf(stream_buf, "%s\n%s\n", mac_string, network_string);
-//
-//        if (ret > 0)
-//            ret = simple_read_from_buffer(buf, count, ppos, stream_buf, ret);
-//
-        dev_kfree_skb(skb);
-//        if (mac_string) kfree(mac_string);
-//        if (network_string) kfree(network_string);
-//        kfree(dst);
-//        kfree(network);
-    }
     spin_unlock(&file->f_dentry->d_parent->d_inode->i_lock);
+    if (skb) {
+        mac_string = kmalloc(sizeof(char)*80, GFP_KERNEL);
+        network_string = kmalloc(sizeof(char)*80, GFP_KERNEL);
+        transport_string = kmalloc(sizeof(char)*80, GFP_KERNEL);
+
+        get_mac_string(mac_string, skb);
+        get_network_string(network_string, skb);
+        get_transport_string(transport_string, skb);
+
+        ret = sprintf(stream_buf, "%s\n%s\n%s\n", mac_string,
+                                                  network_string,
+                                                  transport_string);
+
+        if (ret > 0)
+            ret = simple_read_from_buffer(buf, count, ppos, stream_buf, ret);
+
+        dev_kfree_skb(skb);
+        if (mac_string) kfree(mac_string);
+        if (network_string) kfree(network_string);
+        if (transport_string) kfree(transport_string);
+    }
     return ret;
 }
 
