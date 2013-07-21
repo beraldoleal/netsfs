@@ -24,7 +24,8 @@
 typedef enum {
     NETSFS_DIR = 0,
     NETSFS_STATS = 1,
-    NETSFS_STREAM = 2
+    NETSFS_STREAM = 2,
+    NETSFS_DEBUG = 3
 } netsfs_file_type_t;
 
 struct netsfs_file_private {

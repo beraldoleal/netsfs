@@ -24,6 +24,7 @@
 #include <linux/slab.h>
 #include <asm/uaccess.h>
 #include <linux/kfifo.h>
+#include <linux/printk.h>
 #include <linux/netdevice.h>
 
 #include "internal.h"
@@ -32,16 +33,91 @@
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Beraldo Leal");
 
-#define STREAM_BUF_LEN 1024
+#define STREAM_BUF_LEN 2000
+
+#define MAXWRITEBUF 10
 
 static struct packet_type netsfs_pseudo_proto;
 static const struct inode_operations netsfs_file_inode_operations;
 
 struct dentry *netsfs_root;
 
+unsigned int debug_level = 0;
+
 struct dentry *get_root(void)
 {
     return netsfs_root;
+}
+
+/* change from linux/lib/hexdump.c */
+void netsfs_hex_dump(char *to, const char *prefix_str, int prefix_type,
+                     int rowsize, int groupsize, const void *buf,
+                     size_t len, bool ascii)
+{
+    const u8 *ptr = buf;
+    int i, linelen, remaining = len;
+    unsigned char linebuf[32 * 3 + 2 + 32 + 1];
+
+    if (rowsize != 16 && rowsize != 32)
+        rowsize = 16;
+
+    for (i = 0; i < len; i += rowsize) {
+        linelen = min(remaining, rowsize);
+        remaining -= rowsize;
+
+        hex_dump_to_buffer(ptr + i, linelen, rowsize, groupsize,
+                   linebuf, sizeof(linebuf), ascii);
+
+        switch (prefix_type) {
+        case DUMP_PREFIX_ADDRESS:
+            to += sprintf(to, "%s%p: %s\n",  prefix_str, ptr + i, linebuf);
+            break;
+        case DUMP_PREFIX_OFFSET:
+            to += sprintf(to, "%s%.8x: %s\n", prefix_str, i, linebuf);
+            break;
+        default:
+            to += sprintf(to, "%s%s\n", prefix_str, linebuf);
+            break;
+        }
+    }
+}
+
+void netsfs_hex_dump_bytes(char *to, const char *prefix_str, int prefix_type,
+                           const void *buf, size_t len)
+{
+    netsfs_hex_dump(to, prefix_str, prefix_type, 16, 1,
+                    buf, len, true);
+}
+
+static unsigned int get_debug_level(char* buffer)
+{
+    int level;
+    if (sscanf(buffer, "%d", &level))
+        return level;
+    else
+        return -EFAULT;
+}
+
+static ssize_t netsfs_file_write(struct file *file, const char __user * buf,
+                                 size_t len, loff_t *ppos)
+{
+    int level;
+    char write_buff[MAXWRITEBUF];
+
+    if (len > MAXWRITEBUF)
+        return -EFAULT;
+
+    if (copy_from_user(write_buff, buf, len))
+        return -EFAULT;
+    else {
+        level = get_debug_level(write_buff);
+        if (level >= 0)
+            debug_level = level;
+        else
+            return -EFAULT;
+    }
+    *ppos += len;
+    return len;
 }
 
 /* User space ask to read the "stats" file. */
@@ -49,12 +125,13 @@ static ssize_t netsfs_read_stats(struct file *file, char __user *buf,
                                  size_t count, loff_t *ppos)
 {
     struct netsfs_dir_private *d_private;
-    char stats_buf[STREAM_BUF_LEN];
+    char *stats_buf;
     size_t ret = 0;
 
     if (*ppos != 0)
         return 0;
 
+    stats_buf = kmalloc(512 * sizeof(char), GFP_KERNEL);
     d_private = file->f_dentry->d_parent->d_inode->i_private;
 
     ret = snprintf(stats_buf, STREAM_BUF_LEN, "bytes: %lld\ncount: %lld\n",
@@ -63,6 +140,7 @@ static ssize_t netsfs_read_stats(struct file *file, char __user *buf,
     if (ret > 0)
         ret = simple_read_from_buffer(buf, count, ppos, stats_buf, ret);
 
+    if (stats_buf) kfree(stats_buf);
     return ret;
 }
 
@@ -74,7 +152,9 @@ static ssize_t netsfs_read_stream(struct file *file, char __user *buf,
     struct netsfs_dir_private *d_private;
     struct sk_buff *skb;
 
-    char stream_buf[STREAM_BUF_LEN];
+    char *stream_buf = NULL;
+    char *raw_buf = NULL;
+
     char *mac_string, *network_string, *transport_string;
     size_t ret = 0;
 
@@ -94,9 +174,21 @@ static ssize_t netsfs_read_stream(struct file *file, char __user *buf,
         get_network_string(network_string, skb);
         get_transport_string(transport_string, skb);
 
-        ret = sprintf(stream_buf, "%s\n%s\n%s\n", mac_string,
-                                                  network_string,
-                                                  transport_string);
+        stream_buf = kmalloc(10048 * sizeof(char), GFP_KERNEL);
+
+        if (debug_level > 0) {
+            raw_buf = kmalloc(5024 * sizeof(char), GFP_KERNEL);
+            netsfs_hex_dump_bytes(raw_buf, "", -1, skb->data, skb->len);
+
+            ret = sprintf(stream_buf, "%s\n%s\n%s\n%s", mac_string,
+                                                      network_string,
+                                                      transport_string,
+                                                      raw_buf);
+        }else
+            ret = sprintf(stream_buf, "%s\n%s\n%s\n", mac_string,
+                                                      network_string,
+                                                      transport_string);
+
 
         if (ret > 0)
             ret = simple_read_from_buffer(buf, count, ppos, stream_buf, ret);
@@ -105,6 +197,8 @@ static ssize_t netsfs_read_stream(struct file *file, char __user *buf,
         if (mac_string) kfree(mac_string);
         if (network_string) kfree(network_string);
         if (transport_string) kfree(transport_string);
+        if (stream_buf) kfree(stream_buf);
+        if (raw_buf) kfree(raw_buf);
     }
     return ret;
 }
@@ -151,6 +245,7 @@ struct super_operations netsfs_ops = {
 
 static const struct file_operations netsfs_file_operations = {
     .read           = netsfs_file_read,
+    .write          = netsfs_file_write,
 };
 
 const match_table_t tokens = {
@@ -479,6 +574,7 @@ struct dentry *netsfs_mount(struct file_system_type *fs_type,
         int flags, const char *dev_name, void *data)
 {
     struct dentry *root;
+    struct dentry *debug;
 
     root = mount_nodev(fs_type, flags, data, netsfs_fill_super);
     if (IS_ERR(root))
@@ -490,6 +586,8 @@ struct dentry *netsfs_mount(struct file_system_type *fs_type,
 
     /* Create stats and stream in root dir */
     netsfs_create_files(NULL);
+
+    netsfs_create_by_name("debug", S_IFREG, netsfs_root, &debug, NULL, NETSFS_DEBUG);
 
     /* register a packet handler */
     netsfs_pseudo_proto.type = htons(ETH_P_ALL);
