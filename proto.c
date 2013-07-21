@@ -183,6 +183,11 @@ int get_network_string(char *str, struct sk_buff *skb)
 
     struct iphdr *iphdr;
     char *src, *dst;
+
+    sprintf(str, "[NETWORK]");
+    return 0;
+
+
     iphdr = ip_hdr(skb);
 
     src = kmalloc(sizeof(char)*15, GFP_KERNEL);
@@ -339,57 +344,79 @@ static void netsfs_top(struct work_struct *work)
     struct netsfs_skb_info *netsfsinfo;
     struct dentry *network_dentry, *transport_dentry, *app_dentry;
     unsigned int len;
+    struct sk_buff *skb, *temp_skb;
+    struct dentry *netsfs_root;
 
     int ret;
-    struct sk_buff *buff;
-    struct netsfs_dir_private *d_private;
+    struct netsfs_dir_private *root_private;
 
     netsfsinfo = container_of(work, struct netsfs_skb_info, my_work);
+
+
+    /* increment netsfs root counters in stats */
     len = get_skb_len(netsfsinfo->skb);
+    netsfs_inc_inode_size(NULL, len);
+//
+    /* Make a skb copy to pass to kfifo */
+    skb = skb_copy(netsfsinfo->skb, GFP_KERNEL);
+    if (skb == NULL)
+        goto free;
 
-    /* Create top level files */
-    netsfs_create_files(NULL);
+    netsfs_root = get_root();
 
-    /* Create L3 dir */
-    netsfs_create_dir(get_ether_type(netsfsinfo->skb), NULL, &network_dentry);
-
-    if (network_dentry) {
-        /* Create L3 files */
-        netsfs_create_files(network_dentry);
-
-        netsfs_inc_inode_size(network_dentry->d_parent->d_inode, len);
-        netsfs_inc_inode_size(network_dentry->d_inode, len);
-
-	    /* Put skbuff in kfifo */
-        buff = netsfsinfo->skb;
-        d_private = network_dentry->d_inode->i_private;
-
-        /* Free skb only when fifo is full */
-        ret = cq_put(&d_private->queue_skbuff, buff);
-
-        /* Create L4 dir */
-        netsfs_create_dir(get_ip_protocol(netsfsinfo->skb), network_dentry, &transport_dentry);
-        if (transport_dentry) {
-            /* Create L4 files */
-            netsfs_create_files(transport_dentry);
-
-            netsfs_inc_inode_size(transport_dentry->d_inode, len);
-
-            /* TODO: Currently, L5 only for TCP. */
-            if (ip_hdr(netsfsinfo->skb)->protocol == IPPROTO_TCP) {
-                netsfs_create_dir(get_application_protocol(netsfsinfo->skb), transport_dentry, &app_dentry);
-                if (app_dentry) {
-                    netsfs_create_files(app_dentry);
-                    netsfs_inc_inode_size(app_dentry->d_inode, len);
-                }
-            }
-        }
-
-
-        if (ret == 0)
-            dev_kfree_skb(netsfsinfo->skb);
+    spin_lock(&netsfs_root->d_inode->i_lock);
+    /* If kfifo is full, dequeue */
+    root_private = netsfs_root->d_inode->i_private;
+    if (cq_is_full(&root_private->queue_skbuff)) {
+        temp_skb = cq_get(&root_private->queue_skbuff);
+        kfree_skb(temp_skb);
     }
 
+    /* Put skb in kfifo and only free when fifo is full */
+    ret = cq_put(&root_private->queue_skbuff, skb);
+
+    spin_unlock(&netsfs_root->d_inode->i_lock);
+    if (ret == 0)
+        printk("[netsfs] Probably preempted and queue is full\n");
+
+//    /* Create L3 dir */
+//    netsfs_create_dir(get_ether_type(skb), NULL, &network_dentry);
+//
+//    if (network_dentry) {
+//        /* Create L3 files */
+//        netsfs_create_files(network_dentry);
+//
+//        netsfs_inc_inode_size(network_dentry->d_parent->d_inode, len);
+//        netsfs_inc_inode_size(network_dentry->d_inode, len);
+//
+//	    /* Put skbuff in kfifo and only free when fifo is full */
+//        d_private = network_dentry->d_inode->i_private;
+//        ret = cq_put(&d_private->queue_skbuff, skb);
+//
+//        /* Create L4 dir */
+//        netsfs_create_dir(get_ip_protocol(skb), network_dentry, &transport_dentry);
+//        if (transport_dentry) {
+//            /* Create L4 files */
+//            netsfs_create_files(transport_dentry);
+//
+//            netsfs_inc_inode_size(transport_dentry->d_inode, len);
+//
+//
+////            /* TODO: Currently, L5 only for TCP. */
+////            if (ip_hdr(skb->protocol) == IPPROTO_TCP) {
+////                netsfs_create_dir(get_application_protocol(skb), transport_dentry, &app_dentry);
+////                if (app_dentry) {
+////                    netsfs_create_files(app_dentry);
+////                    netsfs_inc_inode_size(app_dentry->d_inode, len);
+////                }
+////            }
+//        }
+
+//    kfree_skb(skb);
+
+free:
+    kfree_skb(netsfsinfo->skb);
+//    kfree(netsfsinfo);
     kfree( (void *) work);
 }
 

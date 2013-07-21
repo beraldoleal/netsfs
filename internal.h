@@ -38,6 +38,8 @@ struct netsfs_dir_private {
     loff_t bytes;   // total bytes
 };
 
+
+
 /* fifo size in elements (struct sk_buff) */
 #define FIFO_SIZE 32
 
@@ -58,6 +60,8 @@ extern int netsfs_create_by_name(const char *name, mode_t mode, struct dentry *p
 extern void netsfs_create_files(struct dentry *parent);
 extern void netsfs_create_dir(const char *proto_name, struct dentry *parent, struct dentry **dentry);
 extern void netsfs_inc_inode_size(struct inode *inode, loff_t inc);
+
+extern struct dentry *get_root(void);
 
 struct netsfs_mount_opts {
     umode_t mode;
@@ -94,6 +98,14 @@ static inline unsigned int cq_howmany(struct kfifo *kfifo)
 static inline int cq_put(struct kfifo *kfifo, void *p)
 {
     return kfifo_in(kfifo, (void *)&p, sizeof(p));
+}
+
+static inline int cq_is_full(struct kfifo *kfifo)
+{
+    if (cq_howmany(kfifo) == FIFO_SIZE)
+        return 1;
+    else
+        return 0;
 }
 
 static inline void *cq_get(struct kfifo *kfifo)

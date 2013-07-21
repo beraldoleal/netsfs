@@ -35,9 +35,14 @@ MODULE_AUTHOR("Beraldo Leal");
 #define STREAM_BUF_LEN 1024
 
 static struct packet_type netsfs_pseudo_proto;
-static struct dentry *netsfs_root;
 static const struct inode_operations netsfs_file_inode_operations;
 
+struct dentry *netsfs_root;
+
+struct dentry *get_root(void)
+{
+    return netsfs_root;
+}
 
 /* User space ask to read the "stats" file. */
 static ssize_t netsfs_read_stats(struct file *file, char __user *buf,
@@ -76,31 +81,28 @@ static ssize_t netsfs_read_stream(struct file *file, char __user *buf,
     if (*ppos != 0)
         return 0;
 
+    spin_lock(&file->f_dentry->d_parent->d_inode->i_lock);
     d_private = file->f_dentry->d_parent->d_inode->i_private;
     skb = cq_get(&d_private->queue_skbuff);
     if (skb) {
-        mac_string = kmalloc(sizeof(char)*80, GFP_KERNEL);
-        network_string = kmalloc(sizeof(char)*80, GFP_KERNEL);
-
-        if (!mac_string) {
-            printk("AQUI PAU\n");
-            return -ENOMEM;
-        }
-
-        get_mac_string(mac_string, skb);
-        get_network_string(network_string, skb);
-
-        ret = sprintf(stream_buf, "%s\n%s\n", mac_string, network_string);
-
-        if (ret > 0)
-            ret = simple_read_from_buffer(buf, count, ppos, stream_buf, ret);
-
+//        mac_string = kmalloc(sizeof(char)*80, GFP_KERNEL);
+//        network_string = kmalloc(sizeof(char)*80, GFP_KERNEL);
+//
+//        get_mac_string(mac_string, skb);
+//        get_network_string(network_string, skb);
+//
+//        ret = sprintf(stream_buf, "%s\n%s\n", mac_string, network_string);
+//
+//        if (ret > 0)
+//            ret = simple_read_from_buffer(buf, count, ppos, stream_buf, ret);
+//
         dev_kfree_skb(skb);
-        if (mac_string) kfree(mac_string);
-        if (network_string) kfree(network_string);
+//        if (mac_string) kfree(mac_string);
+//        if (network_string) kfree(network_string);
 //        kfree(dst);
 //        kfree(network);
     }
+    spin_unlock(&file->f_dentry->d_parent->d_inode->i_lock);
     return ret;
 }
 
@@ -120,41 +122,9 @@ static ssize_t netsfs_file_read(struct file *file, char __user *buf,
             return netsfs_read_stream(file, buf, count, ppos);
             break;
         default:
-            return 0;
             break;
     }
-
-
-/*
-        skb = cq_get(&d_private->queue_skbuff);
-        if (skb) {
-
-            ether_type = get_ether_type(skb);
-            ip_protocol = get_ip_protocol(skb);
-
-            switch(iph->protocol){
-                case 1: ps = "ICMP"; break;
-                case 4: ps = "IPv4"; break;
-                case 6: ps = "TCP"; break;
-                case 17: ps = "UDP"; break;
-                default: sprintf(ps, "<%d>", iph->protocol); break;
-            }
-
-            ret = sprintf(stream_buf, "%llu %s %d Ether Type: ??, IP Protocol: ??\n",
-                          skb->tstamp.tv64,
-                          skb->dev->name,
-                          skb->len);
-            printk("RET: %d\n", ret);
-        } else
-            return 0;
-    }
-    if (ret > 0) {
-        rv = copy_to_user(buf, stream_buf, ret);
-        (*ppos) += ret;
-        if (skb) kfree(skb);
-    }
-    return ret;
-*/
+    return 0;
 }
 
 /* Comment options here to disable operations to user */
@@ -190,6 +160,9 @@ extern void netsfs_inc_inode_size(struct inode *inode, loff_t inc)
 {
     loff_t oldsize, newsize;
     struct netsfs_dir_private *d_private;
+
+    if(inode == NULL)
+        inode = netsfs_root->d_inode;
 
     //printk(KERN_INFO "%s: Updating inode %lu size to %lld\n",
     //        THIS_MODULE->name,
@@ -504,12 +477,16 @@ struct dentry *netsfs_mount(struct file_system_type *fs_type,
 {
     struct dentry *root;
 
-    // printk("%s:%s:%d - Start.\n", THIS_MODULE->name, __FUNCTION__, __LINE__);
     root = mount_nodev(fs_type, flags, data, netsfs_fill_super);
     if (IS_ERR(root))
         goto out;
 
     netsfs_root = root;
+
+    printk("netsfs_mount: netsfs_root=%p\n", netsfs_root);
+
+    /* Create stats and stream in root dir */
+    netsfs_create_files(NULL);
 
     /* register a packet handler */
     netsfs_pseudo_proto.type = htons(ETH_P_ALL);
