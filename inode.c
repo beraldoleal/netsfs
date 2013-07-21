@@ -76,10 +76,13 @@ static ssize_t netsfs_read_stream(struct file *file, char __user *buf,
 
     char stream_buf[STREAM_BUF_LEN];
     char *mac_string, *network_string;
-    size_t ret = 0;
+    size_t ret = 0, size = 0;
 
+
+/*
     if (*ppos != 0)
         return 0;
+*/
 
     spin_lock(&file->f_dentry->d_parent->d_inode->i_lock);
     d_private = file->f_dentry->d_parent->d_inode->i_private;
