@@ -555,11 +555,8 @@ int netsfs_fill_super(struct super_block *sb, void *data, int silent)
         goto fail;
     }
 
-#ifdef HAVE_D_MAKE_ROOT
     root = d_make_root(inode);
-#else
-    root = d_alloc_root(inode);
-#endif
+//    root = d_alloc_root(inode);
 
     sb->s_root = root;
     if (!root) {
