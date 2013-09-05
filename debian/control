@@ -1,0 +1,17 @@
+Source: netsfs-0.1
+Section: unknown
+Priority: extra
+Maintainer: Beraldo Costa Leal <beraldo@ime.usp.br>
+Build-Depends: debhelper (>= 8.0.0)
+Standards-Version: 3.9.4
+Homepage: http://www.ime.usp.br/~beraldo/netsfs/
+#Vcs-Git: git://git.debian.org/collab-maint/netsfs-0.1.git
+#Vcs-Browser: http://git.debian.org/?p=collab-maint/netsfs-0.1.git;a=summary
+
+Package: netsfs-0.1
+Architecture: any
+Depends: ${shlibs:Depends}, ${misc:Depends}
+Description: A pseudo file system to debug network packets.
+  Network Statistics file system, is a pseudo file system to debug network
+  packets. You can debug your network, simply by analyzing structures of
+  directories and files, you do not need a sniffer or libpcap.
